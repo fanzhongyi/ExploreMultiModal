@@ -1,0 +1,47 @@
+# Model type
+type : 'EMM'
+# Model name
+name : 'explore_vit_base'
+# Checkpoint to resume
+resume : ''
+# Number of classes
+num_classes : 1000
+# Dropout rate
+drop_rate : 0.0
+# Drop path rate
+drop_path_rate : 0.1
+# Label Smoothing
+label_smoothing : 0
+
+
+# model parameters
+#
+vit_encoder:
+  embed_dim : 1024
+  image_resolution : 224
+  vision_layers : ~
+  mask_ratio: 0.75
+  vision_width : 64
+  vision_patch_size : ~
+
+vit_decoder:
+  embed_dim : 1024
+  image_resolution : 224
+  vision_layers : ~
+  mask_ratio: 0.75
+  vision_width : 64
+  vision_patch_size : ~
+
+bert_encoder:
+  context_length : 77
+  vocab_size : 49408
+  transformer_width : 512
+  transformer_heads : 8
+  transformer_layers : 12
+
+bert_decoder:
+  context_length : 77
+  vocab_size : 49408
+  transformer_width : 512
+  transformer_heads : 8
+  TRANSFORMER_LAYERS : 12

@@ -1,0 +1,9 @@
+torch
+torchvision
+regex
+tqdm
+pandas
+timm
+ftfy
+hydra-core
+gpustat

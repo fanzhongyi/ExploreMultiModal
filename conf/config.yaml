@@ -1,0 +1,49 @@
+defaults:
+  - _self_
+  - data: default
+  - common: default
+  - model: mae
+  - train: default
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+  # - override hydra/job_logging: custom
+
+hydra:
+  run:
+    dir: ./
+
+dist:
+# Torch.distributed.launch config by ENV
+  master_addr : '127.0.0.1'
+  master_port : '6309'
+  rank : 0
+  world_size : 1
+  local_rank : 0
+  local_world_size : 1
+# Slurm ENV only config by ENV
+  slurm_enable : false
+  slurm_job_id : 999
+  slurm_procid : 0
+  slurm_ntasks : 1
+  slurm_job_num_nodes : 1
+  slurm_ntasks_per_node : 1
+  SLURM_NODELIST : '127.0.0.1'
+
+# Debug Flag for ipdb
+ipdb : false
+# Mixed precision opt level, if O0, no amp is used ('O0', 'O1', 'O2')
+amp_opt_level : 'O1'
+# Path to output folder, overwritten by command line argument
+output : 'output'
+# Tag of experiment, overwritten by command line argument
+tag : 'default'
+# Frequency to save checkpoint
+save_freq : 20
+# Frequency to logging info
+print_freq : 10
+# Fixed random seed
+seed : 0
+# Perform evaluation only, overwritten by command line argument
+eval_mode : false
+# Test throughput only, overwritten by command line argument
+throughput_mode : false
