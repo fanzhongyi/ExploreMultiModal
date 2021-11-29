@@ -1,1 +1,62 @@
-train_phase: 'pretrain_txt'
+defaults:
+  - _self_
+
+phase: 'pretrain_txt'
+
+loss_names:
+  - mlm
+
+datasets:
+  - book
+  - wiki
+  # - f30k
+  # - vg
+  # - coco
+  # - gcc
+  # - sbu
+  # - vqa
+  # - nlvr2
+
+start_epoch : 0
+epochs : 10
+
+warmup_epochs : 3
+warmup_steps: 10000
+
+weight_decay : 0.01
+weight_decay_end: 0.01
+
+base_lr : 2e-4
+warmup_lr : 5e-7
+min_lr : 5e-6
+
+# Clip gradient norm
+clip_grad : 5.0
+# Auto resume from latest checkpoint
+auto_resume : true
+# resume checkpoint filepath or url
+resume: ''
+# Gradient accumulation steps
+accumulation_steps : 0
+# Frequency to save checkpoint
+save_freq : 1
+# Frequency to logging info
+print_freq : 300
+# logging loss level
+print_stat_level: 2
+
+lr_scheduler:
+  name : 'linear'
+  # Epoch interval to decay LR, used in StepLRScheduler
+  decay_epochs : 30
+  # LR decay rate, used in StepLRScheduler
+  decay_rate : 0.1
+
+opt:
+  name : 'fusedadamw'
+  # Optimizer Epsilon
+  eps : 1e-8
+  # Optimizer Betas
+  betas : [0.9, 0.98]
+  # SGD momentum
+  momentum : 0.9

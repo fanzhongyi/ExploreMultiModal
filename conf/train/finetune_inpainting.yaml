@@ -1,1 +1,1 @@
-train_phase: 'finetune_inpainting'
+phase: 'finetune_inpainting'

@@ -1,15 +1,20 @@
+import functools
+import logging
 import os
 import sys
-import logging
-import functools
+
 from termcolor import colored
 
 
 @functools.lru_cache()
-def create_logger(output_dir, dist_rank=0, name=''):
+def create_logger(output_dir, dist_rank=0, name='', log_level='info'):
     # create logger
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    if log_level == 'info':
+        logger.setLevel(logging.INFO)
+    elif log_level == 'debug':
+        logger.setLevel(logging.DEBUG)
+
     logger.propagate = False
 
     # create formatter

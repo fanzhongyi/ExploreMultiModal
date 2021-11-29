@@ -1,9 +1,17 @@
 torch
 torchvision
+torchmetrics
+einops
 regex
 tqdm
 pandas
+wandb
 timm
+transformers
+datasets
+pyarrow
 ftfy
 hydra-core
 gpustat
+ipdb
+evalai

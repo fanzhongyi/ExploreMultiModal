@@ -1,1 +1,4 @@
-train_phase: 'finetune_nlvr2'
+defaults:
+  - _self_
+
+phase: 'finetune_nlvr2'

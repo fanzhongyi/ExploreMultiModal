@@ -1,9 +1,6 @@
 
-/output/
-/datasets/*.tsv
-/datasets/*.csv
-/datasets/cc_data*
-/datasets/imagenet*
+/output*
+/datasets*
 .hydra/
 
 # Byte-compiled / optimized / DLL files

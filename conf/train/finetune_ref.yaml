@@ -1,1 +1,4 @@
-train_phase: 'finetune_ref'
+defaults:
+  - _self_
+
+phase: 'finetune_ref'

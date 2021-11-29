@@ -1,0 +1,68 @@
+defaults:
+  - _self_
+
+phase: 'finetune_vis'
+
+loss_names:
+  - imgcls
+
+datasets:
+  - in1k
+
+start_epoch : 0
+epochs : 10
+
+warmup_epochs : 3
+warmup_steps: 2500
+
+weight_decay : 0.1
+weight_decay_end: 0.1
+base_lr : 3e-5
+warmup_lr : 5e-7
+min_lr : 5e-6
+
+# Clip gradient norm
+clip_grad : 5.0
+# Auto resume from latest checkpoint
+auto_resume : true
+# resume checkpoint filepath or url
+resume: ''
+# Gradient accumulation steps
+accumulation_steps : 0
+# Frequency to save checkpoint
+save_freq : 1
+# Frequency to logging info
+print_freq : 100
+# logging loss level
+print_stat_level: 2
+
+wandb: true
+# wb_host: localhost
+# wb_token: local-b114b776a0636f41281c6c36bfdf77a2dc115022
+# wb_mode: online
+wb_host: api.wandb.ai
+wb_token: 30e859c562557e3cb316b5863156a37c09569611
+wb_mode: offline
+
+wb_project: vlmo
+wb_name: vlmo_vqa
+# wandb alert email
+wb_alert: false
+
+online_eval: false
+
+lr_scheduler:
+  name : 'linear'
+# Epoch interval to decay LR, used in StepLRScheduler
+  decay_epochs : 30
+# LR decay rate, used in StepLRScheduler
+  decay_rate : 0.1
+
+opt:
+  name : 'fusedadamw'
+  # Optimizer Epsilon
+  eps : 1e-8
+  # Optimizer Betas
+  betas : [0.9, 0.98]
+  # SGD momentum
+  momentum : 0.9

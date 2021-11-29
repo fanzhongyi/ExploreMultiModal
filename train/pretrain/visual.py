@@ -1,265 +1,300 @@
+"""
+Visual Pretraining
+
+NOTE: load checkpoints before create dataset, for dali adaptation.
+
+"""
+
 import datetime
+import json
+import math
+import os
+import sys
 import time
 import warnings
 from logging import Logger
+from typing import Iterable
 
 import torch
-import torch.distributed as dist
-from omegaconf import DictConfig, OmegaConf
-from timm.utils import AverageMeter
-
-from data import build_loader
+import torch.nn as nn
+import wandb
+from einops import rearrange
 from models import build_model
-from utils.lr_scheduler import build_scheduler
-from utils.optimizer import build_optimizer
-from utils.utils import (auto_resume_helper, get_grad_norm, load_checkpoint,
-                         reduce_tensor, save_checkpoint)
-
-try:
-    from apex import amp
-except ImportError:
-    amp = None
+from omegaconf import DictConfig
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from utils import utils
+from utils.optim_factory import create_optimizer
+from utils.utils import NativeScalerWithGradNormCount as NativeScaler
 
 warnings.filterwarnings('ignore')
 
 
 def pretrain_vis(cfg: DictConfig, logger: Logger):
-    start_time = time.time()
-    data_loader_train, data_loader_val, mixup_fn = build_loader(cfg)
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    logger.info(f"train size: {data_loader_train.source.total_size}\t"
-                f"val size: {data_loader_val.source.total_size}"
-                f"load time: {total_time_str}")
 
     logger.info(f"Creating model: {cfg.model.type}/{cfg.model.name}")
     model = build_model(cfg)
-    model.cuda()
-    logger.info(f"Model Arch -->\n{model}")
+    logger.debug(f"Model Arch -->\n{model}")
 
-    optimizer = build_optimizer(cfg, model)
-    if cfg.amp_opt_level != "O0":
-        model, optimizer = amp.initialize(
-            model,
-            optimizer,
-            opt_level=cfg.amp_opt_level,
-        )
-    model = torch.nn.parallel.DistributedDataParallel(
-        model,
-        device_ids=[cfg.dist.local_rank],
-        broadcast_buffers=False,
-    )
-    model_without_ddp = model.module
-
+    model_without_ddp = model
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"number of params: {n_params}")
-    if hasattr(model_without_ddp, 'flops'):
-        logger.info(f"number of GFLOPs: {model_without_ddp.flops() / 1e9}")
+    logger.info(f"number of params: {n_params / 1e6} M")
 
-    lr_scheduler = build_scheduler(cfg, optimizer, len(data_loader_train))
+    patch_size = model.encoder.patch_embed.patch_size
+    cfg.model.patch_size = patch_size
+    cfg.model.window_size = (cfg.model.img_size // patch_size[0],
+                             cfg.model.img_size // patch_size[1])
+    logger.info(f"Patch size = {patch_size}")
 
-    # TODO: implement criterion
-    criterion = torch.nn.MSELoss()
-
-    max_accuracy = 0.0
-
-    if cfg.train.auto_resume:
-        resume_file = auto_resume_helper(cfg.output, logger)
-        if resume_file:
-            if cfg.model.resume:
-                logger.warning(
-                    f"auto-resume changing resume file from {cfg.model.resume} to {resume_file}"
-                )
-            cfg.model.resume = resume_file
-            logger.info(f'auto resuming from {resume_file}')
-        else:
-            logger.info(
-                f'no checkpoint found in {cfg.output}, ignoring auto resume')
-
-    if cfg.model.resume:
-        max_accuracy = load_checkpoint(cfg, model_without_ddp, optimizer,
-                                       lr_scheduler, logger)
-        loss = validate(cfg, model, criterion, data_loader_val, logger)
+    model.cuda()
+    if cfg.dist.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(
+            model,
+            device_ids=[cfg.dist.local_rank],
+            broadcast_buffers=False,
+            # find_unused_parameters=True,
+        )
+        model_without_ddp = model.module
         logger.info(
-            f"Validation on {data_loader_val.source.total_size} samples:\t"
-            f"Loss={loss:.4f}")
-        if cfg.eval_mode:
-            return
+            f'model memory_used:\t{torch.cuda.max_memory_allocated() / 2 ** 20} MB'
+        )
+
+    optimizer = create_optimizer(cfg.train, model_without_ddp)
+    loss_scaler = NativeScaler()
+
+    # NOTE: load model and start_epoch before creating dali data_loader.
+    utils.auto_load_model(
+        cfg=cfg,
+        model=model,
+        model_without_ddp=model_without_ddp,
+        optimizer=optimizer,
+        loss_scaler=loss_scaler,
+    )
+
+    build_pretrain_visual_loader = ...
+
+    data_loader_train, data_loader_val, mixup_fn = build_pretrain_visual_loader(
+        cfg)
+    logger.info(f"train size: {data_loader_train.source.total_size}\t"
+                f"val size: {data_loader_val.source.total_size}")
+
+    num_training_steps_per_epoch = len(data_loader_train)
+    total_batch_size = cfg.data.batch_size * cfg.dist.world_size
+    cfg.train.base_lr = cfg.train.base_lr * total_batch_size / 256
+
+    logger.info(f"LR = {cfg.train.base_lr:.8f}")
+    logger.info(f"Total batch size = {total_batch_size}")
+    logger.info(f"Number of training steps = {num_training_steps_per_epoch}")
+    logger.info(
+        f"Number of training examples per epoch = {total_batch_size * num_training_steps_per_epoch}"
+    )
+
+    lr_schedule_values = utils.cosine_scheduler(
+        cfg.train.base_lr,
+        cfg.train.min_lr,
+        cfg.train.epochs,
+        num_training_steps_per_epoch,
+        warmup_epochs=cfg.train.warmup_epochs,
+        warmup_steps=cfg.train.warmup_steps,
+    )
+    wd_schedule_values = utils.cosine_scheduler(
+        cfg.train.weight_decay,
+        cfg.train.weight_decay_end,
+        cfg.train.epochs,
+        num_training_steps_per_epoch,
+    )
+    logger.info(f"Max WD = {max(wd_schedule_values):.7f}, "
+                f"Min WD = {min(wd_schedule_values):.7f}")
 
     if cfg.throughput_mode:
-        throughput(data_loader_val, model, logger)
+        throughput(model, data_loader_val, logger)
         return
 
     logger.info("Start training")
     start_time = time.time()
 
     for epoch in range(cfg.train.start_epoch, cfg.train.epochs):
-        data_loader_train.source.set_epoch(epoch)
+        train_stats = train_one_epoch(
+            model,
+            data_loader_train,
+            optimizer,
+            epoch,
+            loss_scaler,
+            max_norm=cfg.train.clip_grad,
+            patch_size=patch_size[0],
+            normlize_target=cfg.train.normlize_target,
+            start_steps=epoch * num_training_steps_per_epoch,
+            lr_schedule_values=lr_schedule_values,
+            wd_schedule_values=wd_schedule_values,
+            logger=logger,
+        )
 
-        train_one_epoch(cfg, model, criterion, data_loader_train, optimizer,
-                        epoch, lr_scheduler, logger)
-        if dist.get_rank() == 0 and (epoch % cfg.save_freq == 0
-                                     or epoch == (cfg.train.epochs - 1)):
-            save_checkpoint(cfg, epoch, model_without_ddp, max_accuracy,
-                            optimizer, lr_scheduler, logger)
+        if epoch % cfg.train.save_freq == 0 or epoch + 1 == cfg.train.epochs:
+            utils.save_model(
+                cfg=cfg,
+                model=model,
+                model_without_ddp=model_without_ddp,
+                optimizer=optimizer,
+                loss_scaler=loss_scaler,
+                epoch=epoch,
+            )
 
-        loss = validate(cfg, model, criterion, data_loader_val, logger)
-        logger.info(
-            f"Validation on {data_loader_val.source.total_size} samples:\t"
-            f"Loss={loss:.4f}")
+        log_stats = {
+            **{f'train_{k}': v for k, v in train_stats.items()},
+            'epoch': epoch,
+            'n_params': n_params,
+        }
+
+        if utils.is_main_process():
+            with open(os.path.join(cfg.output_dir, "log_stats.json"),
+                      mode="a",
+                      encoding="utf-8") as f:
+                f.write(json.dumps(log_stats) + "\n")
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info(f'Training time {total_time_str}')
 
-    exit(0)
 
-    epoch = 1
-    t_start = time.time()
-    for e in range(epoch):
-        for i, (img, cap) in enumerate(data_loader_train):
-            img = img.cpu()
-            restore_image, mask_index = model(img)
-            print(restore_image.size(), len(mask_index))
-            print(f'iteration {i}', img.size(), cap.size())
-    t_cost = time.time() - t_start
-    print(
-        f'time: {t_cost}, speed: {len(data_loader_train.source) * epoch / t_cost}imgs/s'
-    )
+def train_one_epoch(model: torch.nn.Module,
+                    data_loader: Iterable,
+                    optimizer: torch.optim.Optimizer,
+                    epoch: int,
+                    loss_scaler,
+                    max_norm: float = 0,
+                    patch_size: int = 16,
+                    normlize_target: bool = True,
+                    lr_scheduler=None,
+                    start_steps=None,
+                    lr_schedule_values=None,
+                    wd_schedule_values=None,
+                    logger=None):
 
-    exit(0)
-
-
-def train_one_epoch(config, model, criterion, data_loader, optimizer, epoch,
-                    lr_scheduler, logger):
     model.train()
-    optimizer.zero_grad()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter(
+        'lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger.add_meter(
+        'min_lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    header = f'[Epoch {epoch}]'
+    print_freq = 10
 
-    num_steps = len(data_loader)
-    data_time, batch_time, loss_meter, norm_meter = AverageMeter(
-    ), AverageMeter(), AverageMeter(), AverageMeter()
+    loss_func = nn.MSELoss()
 
-    dist.barrier(device_ids=[config.local_rank])
-    start = end = time.time()
+    for step, batch in enumerate(
+            metric_logger.log_every(data_loader, print_freq, logger, header)):
+        # assign learning rate & weight decay for each step
+        it = start_steps + step  # global training iteration
+        if lr_schedule_values is not None or wd_schedule_values is not None:
+            for param_group in optimizer.param_groups:
+                if lr_schedule_values is not None:
+                    param_group[
+                        "lr"] = lr_schedule_values[it] * param_group["lr_scale"]
+                if wd_schedule_values is not None and param_group[
+                        "weight_decay"] > 0:
+                    param_group["weight_decay"] = wd_schedule_values[it]
 
-    for idx, (imgs, _) in enumerate(data_loader):
-        dist.barrier(device_ids=[config.local_rank])
-        data_time.update(time.time() - end)
+        images, bool_masked_pos = batch
+        bool_masked_pos = bool_masked_pos.to(torch.bool)
 
-        restore_imgs, mask_index = model(imgs)
-        loss = criterion(restore_imgs, imgs, mask_index)
+        with torch.no_grad():
+            # calculate the predict label
+            mean = torch.as_tensor(IMAGENET_DEFAULT_MEAN,
+                                   device=torch.device('cuda'))[None, :, None,
+                                                                None]
+            std = torch.as_tensor(IMAGENET_DEFAULT_STD,
+                                  device=torch.device('cuda'))[None, :, None,
+                                                               None]
+            unnorm_images = images * std + mean  # in [0, 1]
 
-        if config.train.accumulation_steps > 1:
-            loss = loss / config.train.accumulation_steps
-
-            if config.amp_opt_level != "O0":
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-                params = amp.master_params(optimizer)
+            if normlize_target:
+                images_squeeze = rearrange(
+                    unnorm_images,
+                    'b c (h p1) (w p2) -> b (h w) (p1 p2) c',
+                    p1=patch_size,
+                    p2=patch_size)
+                images_norm = (images_squeeze - images_squeeze.mean(
+                    dim=-2, keepdim=True)) / (images_squeeze.var(
+                        dim=-2, unbiased=True, keepdim=True).sqrt() + 1e-6)
+                # we find that the mean is about 0.48 and standard deviation is about 0.08.
+                images_patch = rearrange(images_norm, 'b n p c -> b n (p c)')
             else:
-                loss.backward()
-                params = model.parameters()
+                images_patch = rearrange(
+                    unnorm_images,
+                    'b c (h p1) (w p2) -> b (h w) (p1 p2 c)',
+                    p1=patch_size,
+                    p2=patch_size)
 
-            if config.train.clip_grad:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    params, config.train.clip_grad)
-            else:
-                grad_norm = get_grad_norm(params)
+            B, _, C = images_patch.shape
+            labels = images_patch[bool_masked_pos].reshape(B, -1, C)
 
-            if (idx + 1) % config.train.accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-                lr_scheduler.step_update(epoch * num_steps + idx)
-        else:
-            if config.amp_opt_level != "O0":
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-                params = amp.master_params(optimizer)
-            else:
-                loss.backward()
-                params = model.parameters()
+        with torch.cuda.amp.autocast():
+            outputs = model(images, bool_masked_pos)
+            loss = loss_func(input=outputs, target=labels)
 
-            if config.train.clip_grad:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    params, config.train.clip_grad)
-            else:
-                grad_norm = get_grad_norm(params)
+        loss_value = loss.item()
 
-            optimizer.step()
-            optimizer.zero_grad()
-            lr_scheduler.step_update(epoch * num_steps + idx)
+        if not math.isfinite(loss_value):
+            logger.warning(f"Loss is {loss_value}, stopping training")
+            sys.exit(1)
+
+        optimizer.zero_grad()
+        # this attribute is added by timm on one optimizer (adahessian)
+        is_second_order = hasattr(
+            optimizer, 'is_second_order') and optimizer.is_second_order
+        grad_norm = loss_scaler(loss,
+                                optimizer,
+                                clip_grad=max_norm,
+                                parameters=model.parameters(),
+                                create_graph=is_second_order)
+        loss_scale_value = loss_scaler.state_dict()["scale"]
 
         torch.cuda.synchronize()
-        dist.barrier(device_ids=[config.local_rank])
 
-        loss_meter.update(loss.item(), imgs.size(0))
-        norm_meter.update(grad_norm)
-        batch_time.update(time.time() - end)
+        metric_logger.update(loss=loss_value)
+        metric_logger.update(loss_scale=loss_scale_value)
+        min_lr = 10.
+        max_lr = 0.
+        for group in optimizer.param_groups:
+            min_lr = min(min_lr, group["lr"])
+            max_lr = max(max_lr, group["lr"])
 
-        end = time.time()
+        metric_logger.update(lr=max_lr)
+        metric_logger.update(min_lr=min_lr)
+        weight_decay_value = None
+        for group in optimizer.param_groups:
+            if group["weight_decay"] > 0:
+                weight_decay_value = group["weight_decay"]
+        metric_logger.update(weight_decay=weight_decay_value)
+        metric_logger.update(grad_norm=grad_norm)
 
-        if idx % config.print_freq == 0:
-            lr = optimizer.param_groups[0]['lr']
-            memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
-            etas = batch_time.avg * (num_steps - idx)
-            logger.info(
-                f'Train: [{epoch}/{config.train.epochs}][{idx}/{num_steps}]\t'
-                f'eta {datetime.timedelta(seconds=int(etas))} (sec:{etas:.3f})  lr {lr:.7f}\t'
-                f'batch_time {batch_time.val:.4f} ({batch_time.avg:.4f})\t'
-                f'data_time {data_time.val:.4f} ({data_time.avg:.4f})\t'
-                f'loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
-                f'grad_norm {norm_meter.val:.4f} ({norm_meter.avg:.4f})\t'
-                f'mem {memory_used:.1f}MB')
-
-    epoch_time = time.time() - start
-    logger.info(
-        f"EPOCH {epoch} training takes {datetime.timedelta(seconds=int(epoch_time))} (sec:{epoch_time:.3f})"
-    )
-
-
-@torch.no_grad()
-def validate(config, model, criterion, data_loader, logger):
-    model.eval()
-    batch_time, loss_meter = AverageMeter(), AverageMeter()
-
-    end = time.time()
-    for idx, (imgs, _) in enumerate(data_loader):
-        restore_imgs, mask_index = model(imgs)
-        loss = criterion(restore_imgs, imgs, mask_index)
-
-        loss_meter.update(loss.item())
-        batch_time.update(time.time() - end)
-        end = time.time()
-        if idx % config.print_freq == 0:
-            memory_used = torch.cuda.max_memory_allocated() / (1024.0 * 1024.0)
-            logger.info(f'Val Batch: [{idx}/{len(data_loader)}]\t'
-                        f'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                        f'Loss {loss_meter.val:.4f} ({loss_meter.avg:.4f})\t'
-                        f'Mem {memory_used:.1f}MB')
-    loss = reduce_tensor(loss_meter.avg)
-    logger.info(f'* Loss {loss:.4f}')
-    return loss
+        if lr_scheduler is not None:
+            lr_scheduler.step_update(start_steps + step)
+    # gather the stats from all processes
+    metric_logger.synchronize_between_processes()
+    logger.info(f"Averaged stats: {metric_logger}")
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
 @torch.no_grad()
-def throughput(data_loader, model, logger):
+def throughput(model, data_loader, logger):
+
     model.eval()
-    for _, (imgs, _) in enumerate(data_loader):
-        batch_size = imgs.shape[0]
-        warmup_step, throughput_step = 50, 500
-        timer = AverageMeter()
+    for _, batch in enumerate(data_loader):
+        images, bool_masked_pos = batch
+        bool_masked_pos = bool_masked_pos.to(torch.bool)
+        batch_size = images.shape[0]
+        warmup_step, throughput_step = 50, 100
+        timer = utils.SmoothedValue(window_size=100)
         for _ in range(warmup_step):
-            model(imgs)
+            model(images, bool_masked_pos)
         logger.info(f"throughput averaged with {throughput_step} times")
         torch.cuda.synchronize()
         for _ in range(throughput_step):
-            starter = torch.cuda.Event(enable_timing=True),
+            starter = torch.cuda.Event(enable_timing=True)
             ender = torch.cuda.Event(enable_timing=True)
             starter.record()
-            model(imgs)
+            model(images, bool_masked_pos)
             ender.record()
             torch.cuda.synchronize()
             timer.update(starter.elapsed_time(ender) / 1000)
-        logger.info(
-            f"batch_size {batch_size} throughput {batch_size / timer.avg}")
-        return
+        logger.info(f"{batch_size=} throughput {batch_size/timer.global_avg}")

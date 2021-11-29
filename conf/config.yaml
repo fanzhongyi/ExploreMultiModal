@@ -1,49 +1,112 @@
 defaults:
   - _self_
-  - data: default
-  - common: default
-  - model: mae
-  - train: default
+  - model: vlmo_debug
+  - train: pretrain_mum
   - override hydra/job_logging: none
   - override hydra/hydra_logging: none
-  # - override hydra/job_logging: custom
+  # - override hydra/sweeper: nevergrad
 
 hydra:
   run:
     dir: ./
 
-dist:
-# Torch.distributed.launch config by ENV
-  master_addr : '127.0.0.1'
-  master_port : '6309'
-  rank : 0
-  world_size : 1
-  local_rank : 0
-  local_world_size : 1
-# Slurm ENV only config by ENV
-  slurm_enable : false
-  slurm_job_id : 999
-  slurm_procid : 0
-  slurm_ntasks : 1
-  slurm_job_num_nodes : 1
-  slurm_ntasks_per_node : 1
-  SLURM_NODELIST : '127.0.0.1'
 
-# Debug Flag for ipdb
+data:
+  # Path to dataset
+  data_root: 'datasets/arrows/'
+  # Batchsize per GPU
+  batch_size: 256
+  eval_batch_size: ~
+  # Only get image
+  image_only: false
+  # Input image size
+  img_size: ${model.img_size}
+
+  # Tokenizer
+  tokenizer: 'bert-base-uncased'
+  # Do whole mask
+  whole_word_masking: true
+  # MLM Probability
+  mlm_prob: 0.15
+
+  # Dataloader num_workers
+  py_num_workers: 10
+  # CPU preload
+  prefetch_factor: 10
+
+  # Background Dataloader
+  bg_loader: true
+  # GPU preload
+  prefetch_queue_depth: 1
+
+  # VQA answer table size
+  vqav2_label_size: 3129
+
+
+dist:
+  distributed: true
+  # torchrun config by ENV
+  master_addr : ~
+  master_port : ~
+  rank : ~
+  world_size : ~
+  local_rank : ~
+  local_world_size : ~
+  dist_backend: 'nccl'
+  dist_url: 'env://'
+  # Slurm ENV only config by ENV
+  slurm_enable : false
+  slurm_job_id : ~
+  slurm_procid : ~
+  slurm_ntasks : ~
+  slurm_job_num_nodes : ~
+  slurm_ntasks_per_node : ~
+  slurm_nodelist : ~
+
+
+wandb:
+  enable: true
+  # host: localhost
+  # token: local-b114b776a0636f41281c6c36bfdf77a2dc115022
+  # mode: online
+  host: api.wandb.ai
+  token: 30e859c562557e3cb316b5863156a37c09569611
+  mode: offline
+  project: vlmo
+  name: "${train.phase}-${tag}"
+  alert: false
+
+
+# Debug flag for ipdb
 ipdb : false
-# Mixed precision opt level, if O0, no amp is used ('O0', 'O1', 'O2')
-amp_opt_level : 'O1'
-# Path to output folder, overwritten by command line argument
-output : 'output'
-# Tag of experiment, overwritten by command line argument
+# Experiment Group Folder
+exp_dir: ~
+# Output : Experiment / Time
+output_dir : 'output'
+# Tag of experiment
 tag : 'default'
-# Frequency to save checkpoint
-save_freq : 20
-# Frequency to logging info
-print_freq : 10
 # Fixed random seed
 seed : 0
-# Perform evaluation only, overwritten by command line argument
+# Perform evaluation only
 eval_mode : false
-# Test throughput only, overwritten by command line argument
+# Test throughput only
 throughput_mode : false
+# Logger level
+log_level: 'debug'
+
+# VLMO momentum update
+vlmo_ema: false
+vlmo_ema_decay: 0.9999
+
+# EMA
+model_ema: false
+model_ema_decay: 0.9999
+
+# Final_metrics for tuning hyperparameters
+minimize_metric: ~
+
+object_handle:
+  logger_handle: ~
+  id2ans: ~
+  ans2id: ~
+  vqa_dict: ~
