@@ -144,14 +144,14 @@ class MetricLogger(object):
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():
                     logger.info(
-                        log_msg.format(
-                            i,
-                            len(iterable),
-                            eta=eta_string,
-                            meters=str(self),
-                            time=str(iter_time),
-                            data=str(data_time),
-                            memory=torch.cuda.max_memory_reserved() / MB))
+                        log_msg.format(i,
+                                       len(iterable),
+                                       eta=eta_string,
+                                       meters=str(self),
+                                       time=str(iter_time),
+                                       data=str(data_time),
+                                       memory=torch.cuda.max_memory_reserved() /
+                                       MB))
                 else:
                     logger.info(
                         log_msg.format(i,
@@ -303,11 +303,9 @@ def save_on_master(*args, **kwargs):
 def init_distributed_mode(cfg_dist):
     if 'SLURM_PROCID' in os.environ:
         cfg_dist.slurm_enable = True
+        cfg_dist.slurm_job_id = int(os.environ['SLURM_JOBID'])
         cfg_dist.slurm_nodelist = os.environ["SLURM_NODELIST"]
-        # cfg_dist.master_addr = subprocess.getoutput(
-        #     f"bash -c '/usr/local/bin/scontrol show hostname {cfg_dist.slurm_nodelist} | head -n1'"
-        # )
-        # cfg_dist.master_addr = int(os.environ['MASTER_ADDR'])
+        cfg_dist.master_addr = os.environ['MASTER_ADDR']
         cfg_dist.rank = int(os.environ['SLURM_PROCID'])
         cfg_dist.world_size = int(os.environ["SLURM_NTASKS"])
         cfg_dist.local_rank = int(os.environ["SLURM_LOCALID"])

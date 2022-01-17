@@ -172,8 +172,7 @@ def finetune_vqa(cfg: DictConfig, logger: Logger):
                     **eval_stats,
                 )
 
-            if (eval_stats['vqa_score'] > best_score or
-                    eval_stats['loss'] < best_loss):
+            if eval_stats['vqa_score'] > best_score:
                 best_epoch, best_loss = epoch, eval_stats['loss']
                 best_score = eval_stats['vqa_score']
 

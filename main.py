@@ -110,6 +110,12 @@ def setup(cfg: DictConfig) -> None:
         log_level=cfg.log_level,
     )
 
+    code_dir = os.path.join(cfg.output_dir, f'code_id_{cfg.dist.slurm_job_id}')
+    os.makedirs(code_dir, exist_ok=True)
+    os.system(f' find . -path "**/output/**" -prune '
+              f' -name "*.yaml" -o -name "*.py" '
+              f' -type f | xargs tar -czvf {code_dir}/code.tar.gz ')
+
     if utils.get_rank() == 0:
         path = os.path.join(cfg.output_dir, "cfg.yaml")
         OmegaConf.save(cfg, path)
