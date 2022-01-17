@@ -4,7 +4,8 @@ name : 'vlmo_large'
 # itc temperature
 temp: 0.5
 
-vocab_size : 49408
+# vocab_size : 49408
+vocab_size : 30522
 max_text_len: 40
 
 img_size: 224
@@ -16,8 +17,8 @@ depth: 24
 num_heads : 16
 mlp_ratio: 4.
 qkv_bias: true
-drop_rate: 0.
-attn_drop_rate: 0.
+drop_rate: 0.1
+attn_drop_rate: 0.1
 drop_path_rate: 0.1
 norm_layer: fused_norm
 init_values: 1e-5

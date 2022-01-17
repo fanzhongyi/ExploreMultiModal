@@ -68,7 +68,7 @@ def compute_mlm(model, batch):
 
 def compute_itc(model, batch):
     with torch.no_grad():
-        model.itc_temp.clamp_(0.001, 0.5)
+        model.itc_temp.clamp_(0.01, 0.5)
 
     img_infer = model.infer(batch, infer_mode='img_only')
     txt_infer = model.infer(batch, infer_mode='txt_only')

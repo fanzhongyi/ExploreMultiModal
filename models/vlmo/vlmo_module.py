@@ -288,11 +288,14 @@ class VlmoModule(nn.Module):
         else:
             txt_feats, img_feats = None, co_feats
 
+        cls_feats = transformer.pooler(co_feats)
+
         ret = {
             "txt_feats": txt_feats,
             "img_feats": img_feats,
             "co_feats": co_feats,
-            "cls_feats": co_feats[:, 0],
+            # "cls_feats": co_feats[:, 0],
+            "cls_feats": cls_feats,
             "img_masks": img_masks,
             "txt_labels": txt_labels,
             "txt_ids": txt_ids,

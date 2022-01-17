@@ -291,7 +291,7 @@ class VLMO(nn.Module):
         self.norm = norm_layer(embed_dim)
 
         # pooler & head
-        # self.pooler = BertPooler(bert_config)
+        self.pooler = BertPooler(bert_config)
         self.head = nn.Identity()
 
         # init weights
