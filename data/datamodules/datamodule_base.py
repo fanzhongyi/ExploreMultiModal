@@ -141,10 +141,6 @@ class ImageTransforms:
                                          (0.26862954, 0.26130258, 0.27577711))
 
         self.pretrain_transform = transforms.Compose([
-            transforms.RandomResizedCrop(img_size,
-                                         scale=(0.2, 1.0),
-                                         interpolation=Image.BICUBIC),
-            transforms.RandomHorizontalFlip(),
             RandomAugment(2,
                           7,
                           isPIL=True,
@@ -153,14 +149,15 @@ class ImageTransforms:
                               'Brightness', 'Sharpness', 'ShearX', 'ShearY',
                               'TranslateX', 'TranslateY', 'Rotate'
                           ]),
+            transforms.RandomResizedCrop(img_size,
+                                         scale=(0.9, 1.0),
+                                         interpolation=Image.BICUBIC),
+            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
         ])
+
         self.train_transform = transforms.Compose([
-            transforms.RandomResizedCrop(img_size,
-                                         scale=(0.5, 1.0),
-                                         interpolation=Image.BICUBIC),
-            transforms.RandomHorizontalFlip(),
             RandomAugment(2,
                           7,
                           isPIL=True,
@@ -169,9 +166,14 @@ class ImageTransforms:
                               'Brightness', 'Sharpness', 'ShearX', 'ShearY',
                               'TranslateX', 'TranslateY', 'Rotate'
                           ]),
+            transforms.RandomResizedCrop(img_size,
+                                         scale=(0.9, 1.0),
+                                         interpolation=Image.BICUBIC),
+            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
         ])
+
         self.val_transform = transforms.Compose([
             transforms.Resize((img_size, img_size),
                               interpolation=Image.BICUBIC),
