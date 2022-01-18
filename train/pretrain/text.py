@@ -35,6 +35,16 @@ warnings.filterwarnings('ignore')
 
 def pretrain_txt(cfg: DictConfig, logger: Logger):
 
+    if cfg.deepspeed.enable:
+        try:
+            import deepspeed
+            ds_init = deepspeed.initialize
+        except Exception:
+            print("Please 'pip install deepspeed'")
+            exit(0)
+    else:
+        ds_init = None
+
     logger.info(f"Creating model: {cfg.model.type}/{cfg.model.name}")
     model = build_model(cfg)
     logger.debug(f"Model Arch -->\n{model}")
@@ -47,19 +57,28 @@ def pretrain_txt(cfg: DictConfig, logger: Logger):
     logger.info(f"Patch size = {patch_size}")
 
     model.cuda()
-    if cfg.dist.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(
-            model,
-            device_ids=[cfg.dist.local_rank],
-            broadcast_buffers=False,
-            find_unused_parameters=True,
+    if cfg.deepspeed.enable:
+        model, optimizer, _, _ = ds_init(
+            model=model,
+            model_parameters=[p for p in model.parameters() if p.requires_grad],
+            dist_init_required=not cfg.dist.distributed,
+            config=OmegaConf.to_object(cfg.deepspeed.config),
         )
-        model_without_ddp = model.module
-        logger.info(
-            f'Model Memory:\t{torch.cuda.max_memory_allocated() / 2 ** 20} MB')
+        loss_scaler = None
+    else:
+        if cfg.dist.distributed:
+            model = torch.nn.parallel.DistributedDataParallel(
+                model,
+                device_ids=[cfg.dist.local_rank],
+                broadcast_buffers=False,
+                find_unused_parameters=True,
+            )
+            model_without_ddp = model.module
+        optimizer = create_optimizer(cfg.train, model_without_ddp)
+        loss_scaler = NativeScaler()
 
-    optimizer = create_optimizer(cfg.train, model_without_ddp)
-    loss_scaler = NativeScaler()
+    logger.info(
+        f'Model Memory:\t{torch.cuda.max_memory_allocated() / 2 ** 20} MB')
 
     dm = MTDataModule(cfg)
     data_loader_train = dm.train_dataloader()
@@ -90,12 +109,12 @@ def pretrain_txt(cfg: DictConfig, logger: Logger):
         logger=logger,
     )
 
-    if cfg.eval_mode:
-        assert len(cfg.train.resume) > 0, 'eval_mode need ckpt!'
-
     if cfg.throughput_mode:
         throughput(model, data_loader_val, logger)
         return
+
+    if cfg.eval_mode:
+        assert len(cfg.train.resume) > 0, 'eval_mode need ckpt!'
 
     if cfg.eval_mode or cfg.train.start_epoch == cfg.train.epochs:
         evaluate(model, data_loader_val, logger=logger, cfg=cfg)
@@ -177,6 +196,8 @@ def pretrain_txt(cfg: DictConfig, logger: Logger):
                       encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
+    logger.info(
+        f'the ckpt-{best_epoch} achieve best loss {best_loss} on val set.')
     cfg.minimize_metric = best_loss
 
     total_time = time.time() - start_time
@@ -214,32 +235,53 @@ def train_one_epoch(model: torch.nn.Module,
     print_freq = cfg.train.print_freq
     print_stat_level = cfg.train.print_stat_level
 
+    if loss_scaler is None:
+        model.zero_grad()
+        model.micro_steps = 0
+    else:
+        optimizer.zero_grad()
+
     for step, batch in enumerate(
             metric_logger.log_every(data_loader, print_freq, logger, header)):
 
         it = start_steps + step  # global training iteration
 
-        with torch.cuda.amp.autocast():
-            outputs = model(batch)
+        if loss_scaler is None:
+            batch_fp16 = dict()
+            for k, v in batch.items():
+                if v.type() in ['torch.FloatTensor', 'torch.cuda.FloatTensor']:
+                    batch_fp16[k] = v.half()
+                else:
+                    batch_fp16[k] = v
+            outputs = model(batch_fp16)
+        else:
+            with torch.cuda.amp.autocast():
+                outputs = model(batch)
 
         total_loss = sum([v for k, v in outputs.items() if "task_loss" in k])
         # __import__('ipdb').set_trace()
 
         if not math.isfinite(total_loss):
             logger.warning(f"Loss is {total_loss}, stopping training")
-            # import sys
-            # sys.exit(1)
+            import sys
+            sys.exit(1)
 
-        optimizer.zero_grad()
-        # this attribute is added by timm on one optimizer (adahessian)
-        is_second_order = hasattr(
-            optimizer, 'is_second_order') and optimizer.is_second_order
-        grad_norm = loss_scaler(total_loss,
-                                optimizer,
-                                clip_grad=max_norm,
-                                parameters=model.parameters(),
-                                create_graph=is_second_order)
-        loss_scale_value = loss_scaler.state_dict()["scale"]
+        if loss_scaler is None:
+            model.backward(total_loss)
+            model.step()
+            grad_norm = None
+            loss_scale_value = utils.get_loss_scale_for_deepspeed(model)
+        else:
+            # this attribute is added by timm on one optimizer (adahessian)
+            is_second_order = hasattr(
+                optimizer, 'is_second_order') and optimizer.is_second_order
+            grad_norm = loss_scaler(total_loss,
+                                    optimizer,
+                                    clip_grad=max_norm,
+                                    parameters=model.parameters(),
+                                    create_graph=is_second_order)
+            optimizer.zero_grad()
+            loss_scale_value = loss_scaler.state_dict()["scale"]
 
         if lr_scheduler is not None:
             lr_scheduler.step_update(it)

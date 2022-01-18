@@ -64,6 +64,31 @@ dist:
   slurm_nodelist : ~
 
 
+# deepspeed config by CMD
+deepspeed:
+  enable: false
+  # ds_config to ds.init
+  config:
+    # train_batch_size: ${data.batch_size}
+    train_micro_batch_size_per_gpu: ${data.batch_size}
+    steps_per_print: 300
+    optimizer:
+      type: Adam
+      adam_w_mode: True
+      params:
+        lr: ${train.base_lr}
+        weight_decay: ${train.weight_decay}
+        bias_correction: true
+        betas: ${train.opt.betas}
+        eps: 1e-8
+    fp16 :
+      enabled: true
+      loss_scale: 0
+      initial_scale_power: 7
+      loss_scale_window: 128
+    # zero_optimization: true
+
+
 wandb:
   enable: true
   # host: localhost

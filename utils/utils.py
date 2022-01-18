@@ -3,7 +3,7 @@ import io
 import json
 import math
 import os
-import subprocess
+import shutil
 import time
 from collections import defaultdict, deque
 from pathlib import Path
@@ -394,6 +394,12 @@ def get_grad_norm_(parameters, norm_type: float = 2.0) -> torch.Tensor:
     return total_norm
 
 
+def get_loss_scale_for_deepspeed(model):
+    optimizer = model.optimizer
+    return optimizer.loss_scale if hasattr(
+        optimizer, "loss_scale") else optimizer.cur_scale
+
+
 def cosine_scheduler(base_value,
                      final_value,
                      epochs,
@@ -483,7 +489,7 @@ def save_model(cfg,
                loss_scaler,
                model_ema=None):
     output_dir = Path(cfg.output_dir)
-    suffix = '.pth' if loss_scaler is not None else ''
+    suffix = '.pth' if loss_scaler is not None else '.ds'
     ckpt_name = f'checkpoint-{epoch}' + suffix
 
     if loss_scaler is not None:
@@ -507,6 +513,9 @@ def save_model(cfg,
         model.save_checkpoint(save_dir=cfg.output_dir,
                               tag=ckpt_name,
                               client_state=client_state)
+        # non deepspeed adaption
+        save_on_master({'model': model_without_ddp.state_dict()},
+                       output_dir / ckpt_name.replace('.ds', '.model'))
     return ckpt_name
 
 
@@ -515,12 +524,11 @@ def remove_models(cfg, epoch, best_epoch):
         output_dir = Path(cfg.output_dir)
 
         import glob
-        all_checkpoints = glob.glob(os.path.join(output_dir,
-                                                 'checkpoint-*.pth'))
+        all_checkpoints = glob.glob(os.path.join(output_dir, 'checkpoint-*'))
         for ckpt in all_checkpoints:
             t = ckpt.split('-')[-1].split('.')[0]
             if t.isdigit() and t not in [str(epoch), str(best_epoch)]:
-                os.remove(ckpt)
+                shutil.rmtree(ckpt) if os.path.isdir(ckpt) else os.remove(ckpt)
 
 
 # XXX: Cyclomatic complexity too high
@@ -538,12 +546,12 @@ def auto_load_model(cfg,
     if loss_scaler is not None:
         ckpt_pattern = 'checkpoint-%d.pth'
     else:
-        ckpt_pattern = 'checkpoint-%d'
+        ckpt_pattern = 'checkpoint-%d.ds'
 
     if cfg.train.auto_resume and len(cfg.train.resume) == 0:
         import glob
         all_checkpoints = glob.glob(
-            os.path.join(exp_dir, '*', 'checkpoint-*.pth'))
+            os.path.join(exp_dir, '*', ckpt_pattern.replace("%d", "*")))
         latest_ckpt = -1
         latest_ckpt_path = ''
         for ckpt in all_checkpoints:
@@ -588,9 +596,12 @@ def auto_load_model(cfg,
                 if (cfg.train.phase, cfg.tag) == (ckpt_cfg.train.phase,
                                                   ckpt_cfg.tag):
                     if 'optimizer' in ckpt and 'lr_scheduler' in ckpt and 'epoch' in ckpt:
-                        optimizer.load_state_dict(ckpt['optimizer'])
-                        lr_scheduler.load_state_dict(ckpt['lr_scheduler'])
                         cfg.train.start_epoch = ckpt['epoch'] + 1
+                        optimizer.load_state_dict(ckpt['optimizer'])
+                        ckpt_total_epochs = ckpt['cfg'].train.epochs
+
+                        if cfg.train.start_epoch < ckpt_total_epochs:
+                            lr_scheduler.load_state_dict(ckpt['lr_scheduler'])
 
                         if cfg.model_ema:
                             _load_checkpoint_for_ema(model_ema,
@@ -605,9 +616,9 @@ def auto_load_model(cfg,
 
         # deepspeed, only support '--auto_resume'.
         if cfg.train.auto_resume and len(cfg.train.resume) > 0:
-            _, client_states = model.load_checkpoint(cfg.output_dir,
-                                                     tag=ckpt_pattern %
-                                                     latest_ckpt)
+            _, client_states = model.load_checkpoint(
+                os.path.dirname(cfg.train.resume),
+                tag=os.path.basename(cfg.train.resume))
             cfg.train.start_epoch = client_states['epoch'] + 1
             if model_ema is not None:
                 if cfg.model_ema:
