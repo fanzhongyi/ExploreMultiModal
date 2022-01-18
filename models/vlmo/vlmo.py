@@ -219,12 +219,11 @@ class VLMO(nn.Module):
             mlp_ratio (int): ratio of mlp hidden dim to embedding dim
             qkv_bias (bool): enable bias for qkv if True
             qk_scale (float): override default qk scale of head_dim ** -0.5 if set
-            representation_size (Optional[int]): enable and set representation layer (pre-logits) to this value if set
             drop_rate (float): dropout rate
             attn_drop_rate (float): attention dropout rate
             drop_path_rate (float): stochastic depth rate
-            hybrid_backbone (nn.Module): CNN backbone to use in-place of PatchEmbed module
             norm_layer: (nn.Module): normalization layer
+            hybrid_backbone (nn.Module): CNN backbone to use in-place of PatchEmbed module
         """
         super().__init__()
 

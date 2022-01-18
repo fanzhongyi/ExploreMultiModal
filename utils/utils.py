@@ -186,11 +186,11 @@ class WandbLogger(object):
             name=config.wandb.name,
             project=config.wandb.project,
         )
-        self.wandb.run.log_code(
-            '.',
-            include_fn=lambda path: path.endswith(".py") or path.endswith(
-                ".yaml"),
-        )
+        # self.wandb.run.log_code(
+        #     '.',
+        #     include_fn=lambda path: path.endswith(".py") or path.endswith(
+        #         ".yaml"),
+        # )
 
         self.step = 0
         self.meters = []
@@ -513,7 +513,7 @@ def save_model(cfg,
         model.save_checkpoint(save_dir=cfg.output_dir,
                               tag=ckpt_name,
                               client_state=client_state)
-        # non deepspeed adaption
+        # non deepspeed adaption, only used with non zero optimization
         save_on_master({'model': model_without_ddp.state_dict()},
                        output_dir / ckpt_name.replace('.ds', '.model'))
     return ckpt_name
@@ -614,45 +614,35 @@ def auto_load_model(cfg,
 
     else:
 
-        # deepspeed, only support '--auto_resume'.
-        if cfg.train.auto_resume and len(cfg.train.resume) > 0:
-            _, client_states = model.load_checkpoint(
-                os.path.dirname(cfg.train.resume),
-                tag=os.path.basename(cfg.train.resume))
-            cfg.train.start_epoch = client_states['epoch'] + 1
-            if model_ema is not None:
-                if cfg.model_ema:
-                    _load_checkpoint_for_ema(model_ema,
-                                             client_states['model_ema'])
+        # deepspeed
+        if cfg.train.resume:
+            if os.path.isdir(cfg.train.resume):
+                _, client_states = model.load_checkpoint(
+                    os.path.dirname(cfg.train.resume),
+                    tag=os.path.basename(cfg.train.resume))
+                cfg.train.start_epoch = client_states['epoch'] + 1
+                if model_ema is not None:
+                    if cfg.model_ema:
+                        _load_checkpoint_for_ema(model_ema,
+                                                 client_states['model_ema'])
+            else:
+                ckpt = torch.load(cfg.train.resume, map_location='cpu')
+                match, is_beit = model_without_ddp.load_from_ckpt(ckpt['model'])
 
+                if is_beit:
+                    logger.warning(
+                        f"Initialized BEiT pretrained => {cfg.train.resume}")
+                else:
+                    logger.info(f"Resume checkpoint ==> {cfg.train.resume}")
 
-def create_ds_config(args):
-    args.deepspeed_config = os.path.join(args.output_dir,
-                                         "deepspeed_config.json")
-    with open(args.deepspeed_config, mode="w") as writer:
-        ds_config = {
-            "train_batch_size":
-                args.batch_size * args.update_freq * get_world_size(),
-            "train_micro_batch_size_per_gpu":
-                args.batch_size,
-            "steps_per_print":
-                1000,
-            "optimizer": {
-                "type": "Adam",
-                "adam_w_mode": True,
-                "params": {
-                    "lr": args.lr,
-                    "weight_decay": args.weight_decay,
-                    "bias_correction": True,
-                    "betas": [0.9, 0.999],
-                    "eps": 1e-8
-                }
-            },
-            "fp16": {
-                "enabled": True,
-                "loss_scale": 0,
-                "initial_scale_power": 7,
-                "loss_scale_window": 128
-            }
-        }
-        writer.write(json.dumps(ds_config, indent=2))
+                if len(match.missing_keys) > 0:
+                    logger.warning(
+                        f"Weights not initialized from pretrained model: {match.missing_keys}"
+                    )
+                if len(match.unexpected_keys) > 0:
+                    logger.warning(
+                        f"Weights from pretrained model not used: {match.unexpected_keys}"
+                    )
+        else:
+            logger.info(
+                'No ckpt or BEiT, training from stratch with deepspeed...')

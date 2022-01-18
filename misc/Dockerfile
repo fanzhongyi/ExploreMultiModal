@@ -3,7 +3,7 @@ FROM nvcr.io/nvidia/pytorch:21.12-py3
 ENV OMP_NUM_THREADS=20
 
 # basic python packages
-RUN pip install torch torchvision einops regex tqdm pandas wandb timm transformers pyarrow datasets ftfy hydra-core ipdb -i https://pypi.tuna.tsinghua.edu.cn/simple --proxy="http://39.106.71.115:7890"
+RUN pip install torch torchvision einops regex tqdm pandas wandb timm transformers deepspeed pyarrow datasets ftfy hydra-core ipdb -i https://pypi.tuna.tsinghua.edu.cn/simple --proxy="http://39.106.71.115:7890"
 
 # workspace
 WORKDIR /ExploreMultiModal

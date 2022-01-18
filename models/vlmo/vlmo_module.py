@@ -327,6 +327,10 @@ class VlmoModule(nn.Module):
         if "vqa" in self.loss_names:
             ret.update(objectives.compute_vqa(self, batch))
 
+        # Masked Image Modeling
+        if "mim" in self.loss_names:
+            ret.update(objectives.compute_mim(self, batch))
+
         # Natural Language for Visual Reasoning 2
         if "nlvr2" in self.loss_names:
             ret.update(objectives.compute_nlvr2(self, batch))

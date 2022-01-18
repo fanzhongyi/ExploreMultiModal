@@ -71,7 +71,8 @@ deepspeed:
   config:
     # train_batch_size: ${data.batch_size}
     train_micro_batch_size_per_gpu: ${data.batch_size}
-    steps_per_print: 300
+    gradient_accumulation_steps: 1
+    steps_per_print: 3000
     optimizer:
       type: Adam
       adam_w_mode: True
@@ -86,7 +87,33 @@ deepspeed:
       loss_scale: 0
       initial_scale_power: 7
       loss_scale_window: 128
-    # zero_optimization: true
+    gradient_clipping: ${train.clip_grad}
+    zero_optimization: ${deepspeed.optimize_level.stage_3}
+  # deepspeed zero optimization level
+  optimize_level:
+    stage_1:
+      stage: 1
+      reduce_bucket_size: 5e8
+    stage_2:
+      stage: 2
+      contiguous_gradients: true
+      overlap_comm: true
+      reduce_scatter: true
+      reduce_bucket_size: 5e8
+      allgather_bucket_size: 5e8
+    stage_3:
+      stage: 3
+      contiguous_gradients: true
+      stage3_max_live_parameters: 1e9
+      stage3_max_reuse_distance: 1e9
+      stage3_prefetch_bucket_size: 1e7
+      stage3_param_persistence_threshold: 1e5
+      reduce_bucket_size: 1e7
+      sub_group_size: 1e9
+      offload_optimizer:
+        device: cpu
+      offload_param:
+        device: cpu
 
 
 wandb:
@@ -98,7 +125,7 @@ wandb:
   token: 30e859c562557e3cb316b5863156a37c09569611
   mode: offline
   project: vlmo
-  name: "${train.phase}-${tag}"
+  name: "${train.phase}-${tag}-${dist.slurm_job_id}"
   alert: false
 
 

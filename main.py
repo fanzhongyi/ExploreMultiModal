@@ -97,7 +97,7 @@ def setup(cfg: DictConfig) -> None:
     cudnn.deterministic = False
     cudnn.enabled = True
 
-    exp_time = time.strftime('%Y-%m-%d@%H:%M:%S', time.localtime())
+    exp_time = time.strftime('%Y-%m-%dH%H:%M:%S', time.localtime())
 
     cfg.exp_dir = os.path.join(cfg.output_dir, cfg.train.phase, cfg.model.name,
                                cfg.tag)

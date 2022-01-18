@@ -231,6 +231,44 @@ def compute_vqa(module, batch):
     return ret
 
 
+# ################### WIP ######################
+
+
+def compute_mim(pl_module, batch):
+    infer = pl_module.infer(batch, mask_txt=False, mask_img=True)
+    mpp_logits = pl_module.mim_decoder(infer["image_feats"])
+    mpp_logits = torch.stack(
+        [
+            mpp_logits[:, :, 0:256],
+            mpp_logits[:, :, 256:512],
+            mpp_logits[:, :, 512:768],
+        ],
+        dim=2,
+    )
+    mpp_labels = infer["image_labels"]
+
+    mpp_loss = F.cross_entropy(
+        mpp_logits.view(-1, 256),
+        mpp_labels.view(-1),
+        ignore_index=-100,
+    )
+
+    ret = {
+        "mpp_loss": mpp_loss,
+        "mpp_logits": mpp_logits,
+        "mpp_labels": mpp_labels,
+    }
+
+    phase = "train" if pl_module.training else "val"
+    loss = getattr(pl_module, f"{phase}_mpp_loss")(ret["mpp_loss"])
+    acc = getattr(pl_module, f"{phase}_mpp_accuracy")(ret["mpp_logits"],
+                                                      ret["mpp_labels"])
+    pl_module.log(f"mpp/{phase}/loss", loss)
+    pl_module.log(f"mpp/{phase}/accuracy", acc)
+
+    return ret
+
+
 # ################### END ######################
 
 
