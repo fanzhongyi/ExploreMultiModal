@@ -236,7 +236,7 @@ def compute_vqa(module, batch):
 
 def compute_mim(pl_module, batch):
     infer = pl_module.infer(batch, mask_txt=False, mask_img=True)
-    mpp_logits = pl_module.mim_decoder(infer["image_feats"])
+    mpp_logits = pl_module.mim_head(infer["image_feats"])
     mpp_logits = torch.stack(
         [
             mpp_logits[:, :, 0:256],

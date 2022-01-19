@@ -304,6 +304,7 @@ class VLMO(nn.Module):
         img_cls_token = self.img_cls_token.expand(x.size(0), -1, -1)
         x = torch.cat((img_cls_token, x), dim=1)
         x = x + self.pos_embed
+        x = self.pos_drop(x)
         x = x + self.token_type_embeddings(
             torch.full_like(img_masks, fill_value=img_token_type_idx))
         return x

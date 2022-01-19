@@ -62,6 +62,10 @@ class VlmoModule(nn.Module):
             self.itm_head = ITMHead(hs)
             self.itm_head.apply(self.transformer._init_weights)
 
+        if 'mim' in self.loss_names:
+            self.mim_head = MPPHead(self.transformer.bert_config)
+            self.mim_head.apply(self.transformer._init_weights)
+
         if 'mpp' in self.loss_names:
             self.mpp_head = MPPHead(self.transformer.bert_config)
             self.mpp_head.apply(self.transformer._init_weights)

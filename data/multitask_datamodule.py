@@ -24,9 +24,6 @@ class MTDataModule:
         self.dms = [v for _, v in self.dm_dicts.items()]
 
         self.phase = config.train.phase
-        self.train_dispatch = DispatchWarpper(self.phase, 'train')
-        self.val_dispatch = DispatchWarpper(self.phase, 'val')
-        self.test_dispatch = DispatchWarpper(self.phase, 'test')
 
         self.batch_size = config.data.batch_size
         self.eval_batch_size = config.data.eval_batch_size or self.batch_size * 2
@@ -132,67 +129,3 @@ class MTDataModule:
     # def collate(self, batch):
     #     batch_size = len(batch)
     #     ...
-
-
-class DispatchWarpper():
-    ''' Multi-Task dispatch_mapping'''
-
-    def __init__(self, phase, train_phase='train'):
-        assert phase in [
-            'pretrain_vis',
-            'pretrain_txt',
-            'pretrain_mum',
-            'finetune_vis',
-            'finetune_txt',
-            'finetune_vqa',
-            'finetune_retrieval',
-            'finetune_ref',
-            'finetune_nlvr2',
-            'finetune_caption',
-            'finetune_inpainting',
-        ]
-        self.phase = phase
-        self.train_phase = train_phase
-        self.dispatch_mapping(self.phase, self.train_phase)
-
-    def __call__(self, sample_dict: dict) -> list:
-        assert set(self.output_map) <= set(sample_dict.keys(
-        )), f'sample miss keys {set(self.output_map) - set(sample_dict.keys())}'
-        sample_tuple = [sample_dict.get(k) for k in self.output_map]
-        return sample_tuple
-
-    def dispatch_mapping(self, phase, train_phase):
-        if phase in ['pretrain_mum', 'finetune_retrieval', 'finetune_caption']:
-            if train_phase in ['train', 'val', 'test']:
-                self.output_map = [
-                    'image',
-                    'text_mask',
-                    'text_ids',
-                    'text_labels',
-                    'text_ids_mlm',
-                    'text_labels_mlm',
-                ]
-
-        elif phase in ['pretrain_vis']:
-            if self.train_phase in ['train', 'val']:
-                self.output_map = ['image', 'image_mask']
-            else:
-                self.output_map = ['image', 'image_mask']
-
-        elif phase in ['finetune_vqa']:
-            self.output_map = [
-                'image',
-                'text_mask',
-                'text_ids',
-                'vqa_targets',
-                'qid',
-            ]
-        else:
-            self.output_map = [
-                'image',
-                'text_mask',
-                'text_ids',
-                'text_labels',
-                'text_ids_mlm',
-                'text_labels_mlm',
-            ]
