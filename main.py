@@ -108,6 +108,7 @@ def setup(cfg: DictConfig) -> None:
         dist_rank=utils.get_rank(),
         name=f"{cfg.model.name} | {cfg.train.phase}",
         log_level=cfg.log_level,
+        extra_tag=cfg.dist.slurm_nodename,
     )
 
     code_dir = os.path.join(cfg.output_dir, f'code_id_{cfg.dist.slurm_job_id}')

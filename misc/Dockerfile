@@ -1,6 +1,7 @@
 FROM nvcr.io/nvidia/pytorch:21.12-py3
 
 ENV OMP_NUM_THREADS=20
+ENV WANDB_API_KEY=30e859c562557e3cb316b5863156a37c09569611
 
 # basic python packages
 RUN pip install torch torchvision einops regex tqdm pandas wandb timm transformers deepspeed pyarrow datasets ftfy hydra-core ipdb -i https://pypi.tuna.tsinghua.edu.cn/simple --proxy="http://39.106.71.115:7890"

@@ -258,8 +258,20 @@ def train_one_epoch(model: torch.nn.Module,
             with torch.cuda.amp.autocast():
                 outputs = model(batch)
 
-        total_loss = sum([v for k, v in outputs.items() if "task_loss" in k])
+        total_loss = sum([
+            v for k, v in outputs.items()
+            if "task_loss" in k and math.isfinite(v)
+        ])
         # __import__('ipdb').set_trace()
+
+        for k, v in outputs.items():
+            if 'loss' in k and not math.isfinite(v):
+                logger.warning(f"{k} is {v}, but not stop training")
+                logger.warning(f"\n{outputs}")
+                torch.save(
+                    outputs,
+                    os.path.join(cfg.output_dir,
+                                 f"{cfg.dist.rank}_{it}_nan_obj.pth"))
 
         if not math.isfinite(total_loss):
             logger.warning(f"Loss is {total_loss}, stopping training")

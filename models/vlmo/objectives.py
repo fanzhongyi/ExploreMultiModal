@@ -47,13 +47,16 @@ def compute_mlm(model, batch):
     mlm_logits = model.mlm_head(infer["txt_feats"])
     mlm_labels = infer["txt_labels"]
 
-    mlm_loss = F.cross_entropy(
-        mlm_logits.view(-1, model.config.model.vocab_size),
-        mlm_labels.view(-1),
-        ignore_index=-100,
-    )
-
     mlm_mean_acc, mlm_count = compute_accuracy(mlm_logits, mlm_labels)
+
+    if mlm_count > 0:
+        mlm_loss = F.cross_entropy(
+            mlm_logits.view(-1, model.config.model.vocab_size),
+            mlm_labels.view(-1),
+            ignore_index=-100,
+        )
+    else:
+        mlm_loss = 0.
 
     ret = {
         "mlm_task_loss": mlm_loss,
@@ -68,7 +71,7 @@ def compute_mlm(model, batch):
 
 def compute_itc(model, batch):
     with torch.no_grad():
-        model.itc_temp.clamp_(0.01, 0.5)
+        model.itc_temp.data = torch.clamp(model.itc_temp.data, 0, 4.6052)
 
     img_infer = model.infer(batch, infer_mode='img_only')
     txt_infer = model.infer(batch, infer_mode='txt_only')
@@ -78,6 +81,9 @@ def compute_itc(model, batch):
 
     i_feat = model.itc_head(i_feat)
     t_feat = model.itc_head(t_feat)
+
+    i_feat = i_feat / i_feat.norm(dim=-1, keepdim=True)
+    t_feat = t_feat / t_feat.norm(dim=-1, keepdim=True)
     '''
     if model.img_queue is not None and model.txt_queue is not None:
         with torch.no_grad():
@@ -105,7 +111,12 @@ def compute_itc(model, batch):
                 sim_targets = torch.eye(*sim_i2t_m.size(), device=i_feat.device)
     '''
 
-    sim_i2t = i_feat @ t_feat.t() / model.itc_temp
+    raw_sim_i2t = i_feat @ t_feat.t()
+    raw_sim_t2i = raw_sim_i2t.t()
+
+    temp = model.itc_temp.exp()
+
+    sim_i2t = raw_sim_i2t * temp
     sim_t2i = sim_i2t.t()
 
     sim_targets = torch.arange(sim_i2t.size(0), device=sim_i2t.device)
@@ -120,7 +131,7 @@ def compute_itc(model, batch):
         't2i_Loss': t2i_loss,
         'sim_i2t': sim_i2t,
         'sim_t2i': sim_t2i,
-        'itc_temp': model.itc_temp,
+        'itc_temp': temp.data,
     }
     return ret
 

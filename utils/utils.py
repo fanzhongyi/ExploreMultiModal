@@ -310,6 +310,7 @@ def init_distributed_mode(cfg_dist):
         cfg_dist.world_size = int(os.environ["SLURM_NTASKS"])
         cfg_dist.local_rank = int(os.environ["SLURM_LOCALID"])
         cfg_dist.local_world_size = int(os.environ["SLURM_NTASKS_PER_NODE"])
+        cfg_dist.slurm_nodename = os.environ['SLURMD_NODENAME']
     elif 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         cfg_dist.rank = int(os.environ["RANK"])
         cfg_dist.world_size = int(os.environ['WORLD_SIZE'])

@@ -62,11 +62,14 @@ dist:
   slurm_job_num_nodes : ~
   slurm_ntasks_per_node : ~
   slurm_nodelist : ~
+  slurm_nodename : ''
 
 
 # deepspeed config by CMD
 deepspeed:
   enable: false
+  # torch state_dict init for deepspeed
+  pth2ds: ~
   # ds_config to ds.init
   config:
     # train_batch_size: ${data.batch_size}
@@ -104,16 +107,20 @@ deepspeed:
     stage_3:
       stage: 3
       contiguous_gradients: true
+      overlap_comm: true
+      reduce_scatter: true
+      reduce_bucket_size: 1e7
       stage3_max_live_parameters: 1e9
       stage3_max_reuse_distance: 1e9
       stage3_prefetch_bucket_size: 1e7
       stage3_param_persistence_threshold: 1e5
-      reduce_bucket_size: 1e7
       sub_group_size: 1e9
       offload_optimizer:
         device: cpu
+        pin_memory: true
       offload_param:
         device: cpu
+        pin_memory: true
 
 
 wandb:

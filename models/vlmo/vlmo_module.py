@@ -1,6 +1,7 @@
 from collections import defaultdict
 from functools import partial
 
+import numpy as np
 import torch
 import torch.nn as nn
 from timm.utils import ModelEmaV2 as ModelEma
@@ -55,8 +56,8 @@ class VlmoModule(nn.Module):
         if 'itc' in self.loss_names:
             self.itc_head = ITCHead(hs)
             self.itc_head.apply(self.transformer._init_weights)
-            self.itc_temp = nn.parameter.Parameter(
-                torch.tensor(config.model.temp))
+            self.itc_temp = nn.Parameter(
+                torch.ones([]) * np.log(1 / config.model.temp))
 
         if 'itm' in self.loss_names:
             self.itm_head = ITMHead(hs)

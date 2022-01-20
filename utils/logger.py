@@ -7,7 +7,11 @@ from termcolor import colored
 
 
 @functools.lru_cache()
-def create_logger(output_dir, dist_rank=0, name='', log_level='info'):
+def create_logger(output_dir,
+                  dist_rank=0,
+                  name='',
+                  log_level='info',
+                  extra_tag=''):
     # create logger
     logger = logging.getLogger(name)
     if log_level == 'info':
@@ -33,7 +37,7 @@ def create_logger(output_dir, dist_rank=0, name='', log_level='info'):
 
     # create file handlers
     file_handler = logging.FileHandler(
-        os.path.join(output_dir, f'log_rank{dist_rank}.txt'),
+        os.path.join(output_dir, f'log_rank{dist_rank}_{extra_tag}.txt'),
         mode='a',
         encoding='utf-8',
     )

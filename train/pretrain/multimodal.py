@@ -59,13 +59,25 @@ def pretrain_mum(cfg: DictConfig, logger: Logger):
 
     model.cuda()
     if cfg.deepspeed.enable:
+        if cfg.deepspeed.pth2ds is not None:
+            torch_ckpt = torch.load(cfg.deepspeed.pth2ds, map_location='cpu')
+            model.load_from_ckpt(torch_ckpt)
+            cfg.train.auto_resume = False
+
         model, optimizer, _, _ = ds_init(
             model=model,
             model_parameters=[p for p in model.parameters() if p.requires_grad],
             dist_init_required=not cfg.dist.distributed,
             config=OmegaConf.to_object(cfg.deepspeed.config),
         )
+        model_without_ddp = model.module
         loss_scaler = None
+
+        if cfg.deepspeed.pth2ds is not None:
+            logger.warning(
+                f'Init Deepspeed with torch state_dict: {cfg.deepspeed.pth2ds},'
+                f' and disable auto resume ckpt as default.')
+
     else:
         if cfg.dist.distributed:
             model = torch.nn.parallel.DistributedDataParallel(
@@ -259,8 +271,22 @@ def train_one_epoch(model: torch.nn.Module,
             with torch.cuda.amp.autocast():
                 outputs = model(batch)
 
-        total_loss = sum([v for k, v in outputs.items() if "task_loss" in k])
+        # FIXME Image Text Matching may cause Nan Loss in any iteration
+
+        total_loss = sum([
+            v for k, v in outputs.items()
+            if "task_loss" in k and math.isfinite(v)
+        ])
         # __import__('ipdb').set_trace()
+
+        for k, v in outputs.items():
+            if 'loss' in k and not math.isfinite(v):
+                logger.warning(f"{k} is {v}, but not stop training")
+                logger.warning(f"\n{outputs}")
+                torch.save(
+                    outputs,
+                    os.path.join(cfg.output_dir,
+                                 f"{cfg.dist.rank}_{it}_nan_obj.pth"))
 
         if not math.isfinite(total_loss):
             logger.warning(f"Loss is {total_loss}, stopping training")
@@ -306,6 +332,7 @@ def train_one_epoch(model: torch.nn.Module,
         if 'itm_mean_acc' in outputs.keys():
             metrics.update(itm_acc=dict(value=outputs['itm_mean_acc'].item(),
                                         n=outputs['itm_count']),)
+            metrics.update(itc_temp=outputs['itc_temp'])
 
         opts = dict()
 
