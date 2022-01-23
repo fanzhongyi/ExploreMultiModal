@@ -59,13 +59,25 @@ def finetune_vqa(cfg: DictConfig, logger: Logger):
 
     model.cuda()
     if cfg.deepspeed.enable:
+        if cfg.deepspeed.pth2ds is not None:
+            torch_ckpt = torch.load(cfg.deepspeed.pth2ds, map_location='cpu')
+            model.load_from_ckpt(torch_ckpt)
+
         model, optimizer, _, _ = ds_init(
             model=model,
             model_parameters=[p for p in model.parameters() if p.requires_grad],
             dist_init_required=not cfg.dist.distributed,
             config=OmegaConf.to_object(cfg.deepspeed.config),
         )
+        model_without_ddp = model.module
         loss_scaler = None
+
+        if cfg.deepspeed.pth2ds is not None:
+            cfg.train.auto_resume = False
+            logger.warning(
+                f'Init Deepspeed with torch state_dict: {cfg.deepspeed.pth2ds},'
+                f' and disable auto resume ckpt as default.')
+
     else:
         if cfg.dist.distributed:
             model = torch.nn.parallel.DistributedDataParallel(
@@ -238,13 +250,6 @@ def finetune_vqa(cfg: DictConfig, logger: Logger):
     if wb_logger is not None:
         wb_logger.finish()
 
-    if cfg.train.online_eval and best_score > 0.6:
-        result_dir = os.path.join(cfg.output_dir, 'submit')
-        result_file = f"vqa_submit_{cfg.model.name}_{best_epoch}.json"
-        score_dict = online_evaluate(os.path.join(result_dir, result_file),
-                                     logger=logger)
-        logger.info(score_dict)
-
 
 def train_one_epoch(model: torch.nn.Module,
                     data_loader: Iterable,
@@ -293,7 +298,15 @@ def train_one_epoch(model: torch.nn.Module,
                 outputs = model(batch)
 
         total_loss = sum([v for k, v in outputs.items() if "task_loss" in k])
-        # __import__('ipdb').set_trace()
+
+        for k, v in outputs.items():
+            if 'loss' in k and not math.isfinite(v):
+                logger.warning(f"{k} is {v}, but not stop training")
+                logger.warning(f"\n{outputs}")
+                torch.save(
+                    outputs,
+                    os.path.join(cfg.output_dir,
+                                 f"{cfg.dist.rank}_{it}_nan_obj.pth"))
 
         if not math.isfinite(total_loss):
             logger.warning(f"Loss is {total_loss}, stopping training")
@@ -471,10 +484,3 @@ def throughput(model, data_loader, logger):
             timer.update(starter.elapsed_time(ender) / 1000)
         logger.info(f"{batch_size=} throughput {batch_size/timer.global_avg}")
         return
-
-
-def online_evaluate(json_file, logger):
-    logger.info(f'submit VQA json: {json_file} to evalution server')
-
-    score_dict = {'dummy_score': 85}
-    return score_dict

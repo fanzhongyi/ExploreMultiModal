@@ -9,6 +9,9 @@ loss_names:
 datasets:
   - vqa
 
+# vqa loss_fn: bce, ce, kl
+loss_fn: bce
+
 start_epoch : 0
 epochs : 10
 
@@ -39,14 +42,14 @@ print_stat_level: 2
 online_eval: false
 
 lr_scheduler:
-  name : 'linear'
+  name : linear
 # Epoch interval to decay LR, used in StepLRScheduler
   decay_epochs : 30
 # LR decay rate, used in StepLRScheduler
   decay_rate : 0.1
 
 opt:
-  name : 'fusedadamw'
+  name : fusedadamw
   # Optimizer Epsilon
   eps : 1e-8
   # Optimizer Betas

@@ -1,0 +1,2 @@
+stage: 1
+reduce_bucket_size: 5e8

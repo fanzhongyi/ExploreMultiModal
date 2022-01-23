@@ -62,7 +62,6 @@ def pretrain_mum(cfg: DictConfig, logger: Logger):
         if cfg.deepspeed.pth2ds is not None:
             torch_ckpt = torch.load(cfg.deepspeed.pth2ds, map_location='cpu')
             model.load_from_ckpt(torch_ckpt)
-            cfg.train.auto_resume = False
 
         model, optimizer, _, _ = ds_init(
             model=model,
@@ -74,6 +73,7 @@ def pretrain_mum(cfg: DictConfig, logger: Logger):
         loss_scaler = None
 
         if cfg.deepspeed.pth2ds is not None:
+            cfg.train.auto_resume = False
             logger.warning(
                 f'Init Deepspeed with torch state_dict: {cfg.deepspeed.pth2ds},'
                 f' and disable auto resume ckpt as default.')
@@ -270,8 +270,6 @@ def train_one_epoch(model: torch.nn.Module,
         else:
             with torch.cuda.amp.autocast():
                 outputs = model(batch)
-
-        # FIXME Image Text Matching may cause Nan Loss in any iteration
 
         total_loss = sum([
             v for k, v in outputs.items()

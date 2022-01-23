@@ -111,12 +111,9 @@ def compute_itc(model, batch):
                 sim_targets = torch.eye(*sim_i2t_m.size(), device=i_feat.device)
     '''
 
-    raw_sim_i2t = i_feat @ t_feat.t()
-    raw_sim_t2i = raw_sim_i2t.t()
-
     temp = model.itc_temp.exp()
 
-    sim_i2t = raw_sim_i2t * temp
+    sim_i2t = i_feat @ t_feat.t() * temp
     sim_t2i = sim_i2t.t()
 
     sim_targets = torch.arange(sim_i2t.size(0), device=sim_i2t.device)
@@ -210,23 +207,40 @@ def compute_itm(model, batch, sim_dict):
     return ret
 
 
-def compute_vqa(module, batch):
+def compute_vqa(model, batch):
     """ train / val / infer Adapted """
-    infer = module.infer(batch,
-                         infer_mode='img-txt',
-                         mask_txt=False,
-                         mask_img=False)
-    vqa_logits = module.vqa_classifier(infer["cls_feats"])
+    infer = model.infer(batch,
+                        infer_mode='img-txt',
+                        mask_txt=False,
+                        mask_img=False)
+    vqa_logits = model.vqa_classifier(infer["cls_feats"])
 
     ret = {"vqa_logits": vqa_logits, "vqa_count": vqa_logits.size(0)}
 
     vqa_targets = batch["vqa_targets"]
 
     if torch.sum(vqa_targets) > 0.0:
-        vqa_loss = (
-            F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
-            vqa_targets.shape[1]
-        )  # https://github.com/jnhwkim/ban-vqa/blob/master/train.py#L19
+
+        if model.config.train.loss_fn == 'bce':
+            vqa_loss = (
+                F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
+                vqa_targets.shape[1])
+        elif model.config.train.loss_fn == 'ce':
+            vqa_loss = (F.cross_entropy(vqa_logits, vqa_targets) *
+                        vqa_targets.shape[1])
+        elif model.config.train.loss_fn == 'kl':
+            vqa_logits = torch.log_softmax(vqa_logits, dim=-1)
+            vqa_loss = (F.kl_div(vqa_logits, vqa_targets) *
+                        vqa_targets.shape[1])
+        else:
+            vqa_loss = (
+                F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
+                vqa_targets.shape[1])
+
+        # vqa_loss = (
+        #     F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
+        #     vqa_targets.shape[1]
+        # )  # https://github.com/jnhwkim/ban-vqa/blob/master/train.py#L19
 
         vqa_mean_score, vqa_count = compute_vqa_score(vqa_logits, vqa_targets)
 
