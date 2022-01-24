@@ -84,7 +84,7 @@ def pretrain_mum(cfg: DictConfig, logger: Logger):
                 model,
                 device_ids=[cfg.dist.local_rank],
                 broadcast_buffers=False,
-                find_unused_parameters=True,
+                # find_unused_parameters=True,
             )
             model_without_ddp = model.module
         optimizer = create_optimizer(cfg.train, model_without_ddp)

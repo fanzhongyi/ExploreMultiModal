@@ -44,8 +44,14 @@ def compute_mlm(model, batch):
                         mask_txt=True,
                         mask_img=False)
 
-    mlm_logits = model.mlm_head(infer["txt_feats"])
+    txt_feats = infer["txt_feats"]
     mlm_labels = infer["txt_labels"]
+
+    mask = (mlm_labels != -100).unsqueeze(-1).expand_as(txt_feats)
+    masked_txt_feats = txt_feats[mask].contiguous().view(-1, txt_feats.size(-1))
+
+    mlm_logits = model.mlm_head(masked_txt_feats)
+    mlm_labels = mlm_labels[mlm_labels != -100]
 
     mlm_mean_acc, mlm_count = compute_accuracy(mlm_logits, mlm_labels)
 

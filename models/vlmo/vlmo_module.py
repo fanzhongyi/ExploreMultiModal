@@ -19,7 +19,7 @@ class VlmoModule(nn.Module):
 
         model_cfg = config.model
         norm_layer = partial(LayerNorm,
-                             eps=1e-6,
+                             eps=1e-12,
                              export='fused' not in model_cfg.norm_layer)
 
         self.transformer = VLMO(
@@ -77,7 +77,7 @@ class VlmoModule(nn.Module):
             vs = config.data.vqav2_label_size
             self.vqa_classifier = nn.Sequential(
                 nn.Linear(hs, hs * 2),
-                nn.LayerNorm(hs * 2),
+                norm_layer(hs * 2),
                 nn.GELU(),
                 nn.Linear(hs * 2, vs),
             )
@@ -86,7 +86,7 @@ class VlmoModule(nn.Module):
         if 'nlvr2' in self.loss_names:
             self.nlvr2_classifier = nn.Sequential(
                 nn.Linear(hs * 2, hs * 2),
-                nn.LayerNorm(hs * 2),
+                norm_layer(hs * 2),
                 nn.GELU(),
                 nn.Linear(hs * 2, 2),
             )
