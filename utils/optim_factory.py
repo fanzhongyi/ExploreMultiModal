@@ -19,99 +19,89 @@ except ImportError:
     has_apex = False
 
 
-def get_num_layer_for_vit(var_name, num_max_layer):
-    if var_name in ("cls_token", "mask_token", "pos_embed"):
-        return 0
-    elif var_name.startswith("patch_embed"):
-        return 0
-    elif var_name.startswith("rel_pos_bias"):
-        return num_max_layer - 1
-    elif var_name.startswith("blocks"):
-        layer_id = int(var_name.split('.')[1])
-        return layer_id + 1
-    else:
-        return num_max_layer - 1
+def get_parameter_groups(
+        model,
+        base_lr,
+        lr_mult_head,
+        lr_mult_fusion,
+        weight_decay=1e-5,
+        skip_list=(),
+):
 
+    fusion_layer = model.config.model.fusion_layer
+    depth = model.config.model.depth
 
-class LayerDecayValueAssigner(object):
+    fusion_names = [f"blocks.{i}" for i in range(fusion_layer, depth)]
+    fusion_names.append('pooler')
+    head_names = [
+        "mlm_head",
+        "itc_head",
+        "itm_head",
+        "mim_head",
+        "vqa_classifier",
+        "nlvr2_classifier",
+        "snli_classifier",
+    ]
 
-    def __init__(self, values):
-        self.values = values
-
-    def get_scale(self, layer_id):
-        return self.values[layer_id]
-
-    def get_layer_id(self, var_name):
-        return get_num_layer_for_vit(var_name, len(self.values))
-
-
-def get_parameter_groups(model,
-                         weight_decay=1e-5,
-                         skip_list=(),
-                         get_num_layer=None,
-                         get_layer_scale=None):
     parameter_group_names = {}
     parameter_group_vars = {}
 
     for name, param in model.named_parameters():
         if not param.requires_grad:
-            continue  # frozen weights
-        if len(param.shape) == 1 or name.endswith(".bias") or name in skip_list:
-            group_name = "no_decay"
+            continue
+
+        if len(param.shape) <= 1 or name.endswith(".bias") or name in skip_list:
+            decay_name = "no_decay"
             this_weight_decay = 0.
         else:
-            group_name = "decay"
+            decay_name = "decay"
             this_weight_decay = weight_decay
-        if get_num_layer is not None:
-            layer_id = get_num_layer(name)
-            group_name = "layer_%d_%s" % (layer_id, group_name)
+
+        if any(hd in name for hd in head_names):
+            part_name = "head_layer"
+            lr = base_lr * lr_mult_head
+        elif any(fl in name for fl in fusion_names):
+            part_name = "fusion_layer"
+            lr = base_lr * lr_mult_fusion
         else:
-            layer_id = None
+            part_name = "bottom_layer"
+            lr = base_lr
+
+        group_name = f"{part_name}_{decay_name}"
 
         if group_name not in parameter_group_names:
-            if get_layer_scale is not None:
-                scale = get_layer_scale(layer_id)
-            else:
-                scale = 1.
-
             parameter_group_names[group_name] = {
-                "weight_decay": this_weight_decay,
                 "params": [],
-                "lr_scale": scale
+                "weight_decay": this_weight_decay,
+                "lr": lr
             }
             parameter_group_vars[group_name] = {
-                "weight_decay": this_weight_decay,
                 "params": [],
-                "lr_scale": scale
+                "weight_decay": this_weight_decay,
+                "lr": lr
             }
 
         parameter_group_vars[group_name]["params"].append(param)
         parameter_group_names[group_name]["params"].append(name)
-    # print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
+    print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
     return list(parameter_group_vars.values())
 
 
-def create_optimizer(cfg,
-                     model,
-                     get_num_layer=None,
-                     get_layer_scale=None,
-                     filter_bias_and_bn=True,
-                     skip_list=None):
+def create_optimizer(cfg, model, skip_list=None):
 
     opt_lower = cfg.opt.name.lower()
     weight_decay = cfg.weight_decay
 
-    if weight_decay and filter_bias_and_bn:
-        skip = {}
-        if skip_list is not None:
-            skip = skip_list
-        elif hasattr(model, 'no_weight_decay'):
-            skip = model.no_weight_decay()
-        parameters = get_parameter_groups(model, weight_decay, skip,
-                                          get_num_layer, get_layer_scale)
-        weight_decay = 0.
-    else:
-        parameters = model.parameters()
+    skip = skip_list or {}
+    if hasattr(model, 'no_weight_decay'):
+        skip = model.no_weight_decay()
+    parameters = get_parameter_groups(model,
+                                      base_lr=cfg.base_lr,
+                                      lr_mult_head=cfg.lr_mult_head,
+                                      lr_mult_fusion=cfg.lr_mult_fusion,
+                                      weight_decay=weight_decay,
+                                      skip_list=skip)
+    weight_decay = 0.
 
     if 'fused' in opt_lower:
         assert has_apex and torch.cuda.is_available(

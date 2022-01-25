@@ -18,11 +18,14 @@ epochs : 10
 warmup_epochs : 3
 warmup_steps: 2500
 
-weight_decay : 0.1
-weight_decay_end: 0.1
-base_lr : 3e-5
+weight_decay : 0.01
+weight_decay_end: 0.01
+base_lr : 3e-6
 warmup_lr : 5e-7
 min_lr : 5e-6
+
+lr_mult_head : 20
+lr_mult_fusion : 5
 
 # Clip gradient norm
 clip_grad : 5.0
@@ -38,8 +41,6 @@ save_freq : 1
 print_freq : 300
 # logging loss level
 print_stat_level: 2
-
-online_eval: false
 
 lr_scheduler:
   name : linear

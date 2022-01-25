@@ -349,3 +349,9 @@ class VlmoModule(nn.Module):
             ret.update(objectives.compute_mpp(self, batch))
 
         return ret
+
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {
+            "itc_temp", "transformer.pos_embed", "transformer.img_cls_token"
+        }

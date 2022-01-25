@@ -243,11 +243,6 @@ def compute_vqa(model, batch):
                 F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
                 vqa_targets.shape[1])
 
-        # vqa_loss = (
-        #     F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
-        #     vqa_targets.shape[1]
-        # )  # https://github.com/jnhwkim/ban-vqa/blob/master/train.py#L19
-
         vqa_mean_score, vqa_count = compute_vqa_score(vqa_logits, vqa_targets)
 
         train_ret = {
