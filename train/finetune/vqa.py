@@ -28,7 +28,7 @@ from models import build_model
 from omegaconf import DictConfig, OmegaConf
 from utils import utils
 from utils.lr_scheduler import build_scheduler
-from utils.optim_factory import create_optimizer
+from utils.optim_factory import create_optimizer, get_parameter_groups
 from utils.utils import NativeScalerWithGradNormCount as NativeScaler
 
 warnings.filterwarnings('ignore')
@@ -63,9 +63,20 @@ def finetune_vqa(cfg: DictConfig, logger: Logger):
             torch_ckpt = torch.load(cfg.deepspeed.pth2ds, map_location='cpu')
             model.load_from_ckpt(torch_ckpt)
 
+        skip = {}
+        if hasattr(model, 'no_weight_decay'):
+            skip = model.no_weight_decay()
+        parameters = get_parameter_groups(
+            model,
+            base_lr=cfg.train.base_lr,
+            lr_mult_head=cfg.train.lr_mult_head,
+            lr_mult_fusion=cfg.train.lr_mult_fusion,
+            weight_decay=cfg.train.weight_decay,
+            skip_list=skip,
+        )
         model, optimizer, _, _ = ds_init(
             model=model,
-            model_parameters=[p for p in model.parameters() if p.requires_grad],
+            model_parameters=parameters,
             dist_init_required=not cfg.dist.distributed,
             config=OmegaConf.to_object(cfg.deepspeed.config),
         )
