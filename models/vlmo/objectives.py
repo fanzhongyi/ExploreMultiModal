@@ -90,37 +90,50 @@ def compute_itc(model, batch):
 
     i_feat = i_feat / i_feat.norm(dim=-1, keepdim=True)
     t_feat = t_feat / t_feat.norm(dim=-1, keepdim=True)
-    '''
-    if model.img_queue is not None and model.txt_queue is not None:
-        with torch.no_grad():
-            if model.transformer_m is not None:
-                model.transformer_m.update(model.transformer)
-
-                img_infer_m = model.infer(batch,
-                                          infer_mode='img_only',
-                                          momentum_mode=True)
-                txt_infer_m = model.infer(batch,
-                                          infer_mode='txt_only',
-                                          momentum_mode=True)
-                i_feat_m = img_infer_m['co_feats'][:, 0]
-                t_feat_m = txt_infer_m['co_feats'][:, 0]
-                i_feat_all = torch.cat(
-                    [i_feat_m.t(),
-                     model.img_queue.clone().detach()], dim=1)
-                t_feat_all = torch.cat(
-                    [t_feat_m.t(),
-                     model.img_queue.clone().detach()], dim=1)
-
-                sim_i2t_m = i_feat_m @ t_feat_all / model.itc_temp
-                sim_t2i_m = t_feat_m @ i_feat_all / model.itc_temp
-
-                sim_targets = torch.eye(*sim_i2t_m.size(), device=i_feat.device)
-    '''
 
     temp = model.itc_temp.exp()
 
-    sim_i2t = i_feat @ t_feat.t() * temp
-    sim_t2i = sim_i2t.t()
+    if model.transformer_m is not None:
+        with torch.no_grad():
+            model.transformer_m.update(model.transformer)
+
+            img_infer_m = model.infer(batch,
+                                      infer_mode='img_only',
+                                      momentum_mode=True)
+            txt_infer_m = model.infer(batch,
+                                      infer_mode='txt_only',
+                                      momentum_mode=True)
+
+            i_feat_m = img_infer_m['co_feats'][:, 0]
+            t_feat_m = txt_infer_m['co_feats'][:, 0]
+
+            i_feat_m = model.itc_head(i_feat_m)
+            t_feat_m = model.itc_head(t_feat_m)
+
+            i_feat_m = i_feat_m / i_feat_m.norm(dim=-1, keepdim=True)
+            t_feat_m = t_feat_m / t_feat_m.norm(dim=-1, keepdim=True)
+        '''
+        if model.img_queue is not None and model.txt_queue is not None:
+            i_feat_all = torch.cat(
+                [i_feat_m.t(), model.img_queue.clone().detach()], dim=1)
+            t_feat_all = torch.cat(
+                [t_feat_m.t(), model.img_queue.clone().detach()], dim=1)
+
+            sim_i2t_m = i_feat_m @ t_feat_all / model.itc_temp
+            sim_t2i_m = t_feat_m @ i_feat_all / model.itc_temp
+
+            sim_targets = torch.eye(*sim_i2t_m.size(), device=i_feat.device)
+
+            sim_i2t_targets = alpha * F.softmax(
+                sim_i2t_m, dim=1) + (1 - alpha) * sim_targets
+            sim_t2i_targets = alpha * F.softmax(
+                sim_t2i_m, dim=1) + (1 - alpha) * sim_targets
+        '''
+        sim_i2t = i_feat @ t_feat_m.t() * temp
+        sim_t2i = t_feat @ i_feat_m.t() * temp
+    else:
+        sim_i2t = i_feat @ t_feat.t() * temp
+        sim_t2i = sim_i2t.t()
 
     sim_targets = torch.arange(sim_i2t.size(0), device=sim_i2t.device)
     i2t_loss = F.cross_entropy(sim_i2t, sim_targets)

@@ -314,6 +314,30 @@ class VLMO(nn.Module):
         x = x + self.token_type_embeddings(torch.zeros_like(txt_masks))
         return x
 
+    def forward_interval(
+        self,
+        x,
+        masks,
+        route=None,
+        need_embed=False,
+        in_layer=None,
+        out_layer=None,
+        img_token_type_idx=1,
+        need_norm=False,
+    ):
+        assert route in ['v', 'l', 'vl']
+
+        if need_embed:
+            if route in ['v']:
+                x = self.embed_img(x, masks, img_token_type_idx)
+            elif route in ['l']:
+                x = self.embed_txt(x, masks)
+
+        for _, blk in enumerate(self.blocks[in_layer:out_layer]):
+            x, _ = blk(x, mask=x, route=route)
+
+        return self.norm(x) if need_norm else x
+
     def forward_features(
         self,
         img=None,
