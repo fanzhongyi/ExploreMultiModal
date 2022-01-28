@@ -182,15 +182,10 @@ class WandbLogger(object):
         self.run = wandb.init(
             config=config,
             dir=f"{config.output_dir}",
-            id="-".join([config.train.phase, config.tag]),
+            id=config.wandb.id,
             name=config.wandb.name,
-            project=config.wandb.project,
+            project=f"{config.wandb.project}-{config.train.phase}",
         )
-        # self.wandb.run.log_code(
-        #     '.',
-        #     include_fn=lambda path: path.endswith(".py") or path.endswith(
-        #         ".yaml"),
-        # )
 
         self.step = 0
         self.meters = []
