@@ -128,7 +128,7 @@ log_level: 'debug'
 
 # VLMO momentum update
 vlmo_ema: false
-vlmo_ema_decay: 0.9999
+vlmo_ema_decay: 0.995
 
 # EMA
 model_ema: false

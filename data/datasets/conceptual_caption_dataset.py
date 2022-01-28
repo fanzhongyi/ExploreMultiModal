@@ -9,7 +9,7 @@ class ConceptualCaptionDataset(BaseDataset):
             split = "val"
 
         if split == "train":
-            names = [f"conceptual_caption_train_{i}" for i in range(30)]
+            names = [f"conceptual_caption_train_{i}" for i in range(31)]
         elif split == "val":
             names = ["conceptual_caption_val_0"]
         else:

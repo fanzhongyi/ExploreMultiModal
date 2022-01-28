@@ -30,8 +30,8 @@ base_lr : 2e-4
 warmup_lr : 5e-7
 min_lr : 5e-6
 
-lr_mult_head : 5
-lr_mult_fusion : 5
+lr_mult_head : 1
+lr_mult_fusion : 1
 
 neg_queue: false
 queue_size: 65536

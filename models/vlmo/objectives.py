@@ -88,6 +88,7 @@ def compute_itc(model, batch):
     temp = model.itc_temp.exp()
 
     if model.transformer_m is not None:
+        model.transformer_m.eval()
         with torch.no_grad():
             model.transformer_m.update(model.transformer)
 
@@ -101,27 +102,28 @@ def compute_itc(model, batch):
             i_feat_m = model.itc_head(img_infer_m['co_feats'][:, 0])
             t_feat_m = model.itc_head(txt_infer_m['co_feats'][:, 0])
         '''
-        if model.img_queue is not None and model.txt_queue is not None:
-            i_feat_all = torch.cat(
-                [i_feat_m.t(), model.img_queue.clone().detach()], dim=1)
-            t_feat_all = torch.cat(
-                [t_feat_m.t(), model.img_queue.clone().detach()], dim=1)
-
-            sim_i2t_m = i_feat_m @ t_feat_all / model.itc_temp
-            sim_t2i_m = t_feat_m @ i_feat_all / model.itc_temp
-
-            sim_targets = torch.eye(*sim_i2t_m.size(), device=i_feat.device)
-
             sim_i2t_targets = alpha * F.softmax(
                 sim_i2t_m, dim=1) + (1 - alpha) * sim_targets
             sim_t2i_targets = alpha * F.softmax(
                 sim_t2i_m, dim=1) + (1 - alpha) * sim_targets
         '''
-        sim_i2t = i_feat @ t_feat_m.t() * temp
-        sim_t2i = t_feat @ i_feat_m.t() * temp
-    else:
+
+    if model.transformer_m is None and model.img_queue is None:
         sim_i2t = i_feat @ t_feat.t() * temp
         sim_t2i = sim_i2t.t()
+
+    elif model.img_queue is None:
+        sim_i2t = i_feat @ t_feat_m.t() * temp
+        sim_t2i = t_feat @ i_feat_m.t() * temp
+
+    else:
+        i_feat_all = torch.cat([i_feat_m.t(), model.img_queue], dim=1)
+        t_feat_all = torch.cat([t_feat_m.t(), model.img_queue], dim=1)
+
+        sim_i2t = i_feat_m @ t_feat_all / temp
+        sim_t2i = t_feat_m @ i_feat_all / temp
+
+        dequeue_and_enqueue(model, i_feat_m, t_feat_m)
 
     sim_targets = torch.arange(sim_i2t.size(0), device=sim_i2t.device)
     i2t_loss = F.cross_entropy(sim_i2t, sim_targets)
@@ -162,8 +164,8 @@ def compute_itm(model, batch, sim_dict):
 
     # negative pair
     with torch.no_grad():
-        weights_i2t = F.softmax(sim_i2t, dim=1) + 1e-5
-        weights_t2i = F.softmax(sim_t2i, dim=1) + 1e-5
+        weights_i2t = F.softmax(sim_i2t[:, :bs], dim=1) + 1e-5
+        weights_t2i = F.softmax(sim_t2i[:, :bs], dim=1) + 1e-5
         weights_i2t.fill_diagonal_(0)
         weights_t2i.fill_diagonal_(0)
 
@@ -263,6 +265,37 @@ def compute_vqa(model, batch):
         ret.update(train_ret)
 
     return ret
+
+
+@torch.no_grad()
+def concat_all_gather(tensor):
+    tensors_gather = [
+        torch.ones_like(tensor)
+        for _ in range(torch.distributed.get_world_size())
+    ]
+    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
+    return torch.cat(tensors_gather, dim=0)
+
+
+@torch.no_grad()
+def dequeue_and_enqueue(model, image_feat, text_feat):
+
+    if not model.training:
+        return
+
+    image_feats = concat_all_gather(image_feat)
+    text_feats = concat_all_gather(text_feat)
+
+    batch_size = image_feats.shape[0]
+
+    ptr = int(model.queue_ptr)
+    assert model.q_size % batch_size == 0, f"{model.q_size=} % {batch_size=}"
+
+    model.img_queue[:, ptr:ptr + batch_size] = image_feats.T
+    model.txt_queue[:, ptr:ptr + batch_size] = text_feats.T
+    ptr = (ptr + batch_size) % model.q_size
+
+    model.queue_ptr[0] = ptr
 
 
 # ################### WIP ######################

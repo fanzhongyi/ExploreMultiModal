@@ -112,13 +112,15 @@ class VlmoModule(nn.Module):
         # ======================= Queue ====================== #
 
         if hasattr(config.train, 'neg_queue') and config.train.neg_queue:
-            self.q_size = config.train.queue_size
+            total_size = config.data.batch_size * config.dist.world_size
+            self.q_size = (config.train.queue_size // total_size) * total_size
             self.register_buffer("img_queue", torch.randn(hs, self.q_size))
             self.register_buffer("txt_queue", torch.randn(hs, self.q_size))
             self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
             self.img_queue = nn.functional.normalize(self.img_queue, dim=0)
             self.txt_queue = nn.functional.normalize(self.txt_queue, dim=0)
         else:
+            self.q_size = 0
             self.img_queue, self.txt_queue = None, None
 
     def _freeze_params(self):
@@ -230,13 +232,18 @@ class VlmoModule(nn.Module):
         state_dict = self.interpolate_pos_embedding(state_dict)
 
         is_beit = True
+        has_momentum_dict = False
         for k in list(state_dict.keys()):
             if ".mlp.v_mlp" in k or '.mlp.l_mlp' in k or '.mlp.vl_mlp' in k:
                 is_beit = False
-                break
+            if "transformer_m" in k:
+                has_momentum_dict = True
 
         load_fn = self._load_beit if is_beit else self._load_vlmo
         matching = load_fn(state_dict)
+
+        if self.transformer_m is not None and not has_momentum_dict:
+            self.transformer_m.set(self.transformer)
 
         return matching, is_beit
 
