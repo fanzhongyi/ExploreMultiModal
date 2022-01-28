@@ -82,14 +82,8 @@ def compute_itc(model, batch):
     img_infer = model.infer(batch, infer_mode='img_only')
     txt_infer = model.infer(batch, infer_mode='txt_only')
 
-    i_feat = img_infer['co_feats'][:, 0]
-    t_feat = txt_infer['co_feats'][:, 0]
-
-    i_feat = model.itc_head(i_feat)
-    t_feat = model.itc_head(t_feat)
-
-    i_feat = i_feat / i_feat.norm(dim=-1, keepdim=True)
-    t_feat = t_feat / t_feat.norm(dim=-1, keepdim=True)
+    i_feat = model.itc_head(img_infer['co_feats'][:, 0])
+    t_feat = model.itc_head(txt_infer['co_feats'][:, 0])
 
     temp = model.itc_temp.exp()
 
@@ -104,14 +98,8 @@ def compute_itc(model, batch):
                                       infer_mode='txt_only',
                                       momentum_mode=True)
 
-            i_feat_m = img_infer_m['co_feats'][:, 0]
-            t_feat_m = txt_infer_m['co_feats'][:, 0]
-
-            i_feat_m = model.itc_head(i_feat_m)
-            t_feat_m = model.itc_head(t_feat_m)
-
-            i_feat_m = i_feat_m / i_feat_m.norm(dim=-1, keepdim=True)
-            t_feat_m = t_feat_m / t_feat_m.norm(dim=-1, keepdim=True)
+            i_feat_m = model.itc_head(img_infer_m['co_feats'][:, 0])
+            t_feat_m = model.itc_head(txt_infer_m['co_feats'][:, 0])
         '''
         if model.img_queue is not None and model.txt_queue is not None:
             i_feat_all = torch.cat(
@@ -321,8 +309,7 @@ def compute_mim(pl_module, batch):
 def cost_matrix_cosine(x, y):
     """Compute cosine distnace across every pairs of x, y (batched)
     [B, L_x, D] [B, L_y, D] -> [B, Lx, Ly]"""
-    assert x.dim() == y.dim()
-    assert (x.size(0), x.size(2)) == (y.size(0), y.size(2))
+    assert (x.dim(), x.size(0), x.size(2)) == (y.dim(), y.size(0), y.size(2))
     return 1 - F.cosine_similarity(x.unsqueeze(2), y.unsqueeze(1), dim=3)
 
 
