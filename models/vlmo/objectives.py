@@ -141,6 +141,9 @@ def compute_itc(model, batch):
 
     itc_loss = (i2t_loss + t2i_loss) / 2
 
+    itc_i2t_mean_acc, itc_i2t_count = compute_accuracy(sim_i2t, sim_targets)
+    itc_t2i_mean_acc, itc_t2i_count = compute_accuracy(sim_t2i, sim_targets)
+
     ret = {
         'itc_task_loss': itc_loss,
         'i2t_Loss': i2t_loss,
@@ -148,6 +151,10 @@ def compute_itc(model, batch):
         'sim_i2t': sim_i2t,
         'sim_t2i': sim_t2i,
         'itc_temp': temp.data,
+        'itc_i2t_mean_acc': itc_i2t_mean_acc,
+        'itc_i2t_count': itc_i2t_count,
+        'itc_t2i_mean_acc': itc_t2i_mean_acc,
+        'itc_t2i_count': itc_t2i_count,
     }
     return ret
 

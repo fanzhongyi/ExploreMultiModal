@@ -331,6 +331,12 @@ def train_one_epoch(model: torch.nn.Module,
             metrics.update(itm_acc=dict(value=outputs['itm_mean_acc'].item(),
                                         n=outputs['itm_count']),)
             metrics.update(itc_temp=outputs['itc_temp'])
+            metrics.update(itc_i2t_acc=dict(
+                value=outputs['itc_i2t_mean_acc'].item(),
+                n=outputs['itc_i2t_count']),)
+            metrics.update(itc_t2i_acc=dict(
+                value=outputs['itc_t2i_mean_acc'].item(),
+                n=outputs['itc_t2i_count']),)
 
         opts = dict()
 
@@ -402,6 +408,12 @@ def evaluate(model: torch.nn.Module,
         if 'itm_mean_acc' in outputs.keys():
             metrics.update(itm_acc=dict(value=outputs['itm_mean_acc'].item(),
                                         n=outputs['itm_count']),)
+            metrics.update(itc_i2t_acc=dict(
+                value=outputs['itc_i2t_mean_acc'].item(),
+                n=outputs['itc_i2t_count']),)
+            metrics.update(itc_t2i_acc=dict(
+                value=outputs['itc_t2i_mean_acc'].item(),
+                n=outputs['itc_t2i_count']),)
 
         metric_logger.update(**metrics)
 
