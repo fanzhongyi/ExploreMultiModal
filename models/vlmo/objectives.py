@@ -79,13 +79,13 @@ def compute_itc(model, batch):
     with torch.no_grad():
         model.itc_temp.data = torch.clamp(model.itc_temp.data, 0, 4.6052)
 
+    temp = model.itc_temp.exp()
+
     img_infer = model.infer(batch, infer_mode='img_only')
     txt_infer = model.infer(batch, infer_mode='txt_only')
 
     i_feat = model.itc_head(img_infer['co_feats'][:, 0])
     t_feat = model.itc_head(txt_infer['co_feats'][:, 0])
-
-    temp = model.itc_temp.exp()
 
     if model.transformer_m is not None:
         model.transformer_m.eval()
@@ -117,11 +117,13 @@ def compute_itc(model, batch):
         sim_t2i = t_feat @ i_feat_m.t() * temp
 
     else:
-        i_feat_all = torch.cat([i_feat_m.t(), model.img_queue], dim=1)
-        t_feat_all = torch.cat([t_feat_m.t(), model.img_queue], dim=1)
+        i_feat_all = torch.cat(
+            [i_feat_m.t(), model.img_queue.clone().detach()], dim=1)
+        t_feat_all = torch.cat(
+            [t_feat_m.t(), model.txt_queue.clone().detach()], dim=1)
 
-        sim_i2t = i_feat_m @ t_feat_all / temp
-        sim_t2i = t_feat_m @ i_feat_all / temp
+        sim_i2t = i_feat @ t_feat_all * temp
+        sim_t2i = t_feat @ i_feat_all * temp
 
         dequeue_and_enqueue(model, i_feat_m, t_feat_m)
 
@@ -289,10 +291,19 @@ def dequeue_and_enqueue(model, image_feat, text_feat):
     batch_size = image_feats.shape[0]
 
     ptr = int(model.queue_ptr)
-    assert model.q_size % batch_size == 0, f"{model.q_size=} % {batch_size=}"
 
-    model.img_queue[:, ptr:ptr + batch_size] = image_feats.T
-    model.txt_queue[:, ptr:ptr + batch_size] = text_feats.T
+    if ptr + batch_size <= model.q_size:
+        model.img_queue[:, ptr:ptr + batch_size] = image_feats.T
+        model.txt_queue[:, ptr:ptr + batch_size] = text_feats.T
+
+    else:
+        model.img_queue[:, ptr:] = image_feats.T[:, :model.q_size - ptr]
+        model.txt_queue[:, ptr:] = text_feats.T[:, :model.q_size - ptr]
+        model.img_queue[:, :ptr + batch_size -
+                        model.q_size] = image_feats.T[:, model.q_size - ptr:]
+        model.txt_queue[:, :ptr + batch_size -
+                        model.q_size] = text_feats.T[:, model.q_size - ptr:]
+
     ptr = (ptr + batch_size) % model.q_size
 
     model.queue_ptr[0] = ptr

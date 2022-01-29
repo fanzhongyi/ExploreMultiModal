@@ -112,8 +112,7 @@ class VlmoModule(nn.Module):
         # ======================= Queue ====================== #
 
         if hasattr(config.train, 'neg_queue') and config.train.neg_queue:
-            total_size = config.data.batch_size * config.dist.world_size
-            self.q_size = (config.train.queue_size // total_size) * total_size
+            self.q_size = config.train.queue_size
             self.register_buffer("img_queue", torch.randn(hs, self.q_size))
             self.register_buffer("txt_queue", torch.randn(hs, self.q_size))
             self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
