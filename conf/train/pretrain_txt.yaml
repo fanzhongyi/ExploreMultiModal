@@ -33,6 +33,8 @@ min_lr : 5e-6
 lr_mult_head : 5
 lr_mult_fusion : 5
 
+flat_loss: false
+
 # Clip gradient norm
 clip_grad : 5.0
 # Auto resume from latest checkpoint

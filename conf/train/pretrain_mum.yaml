@@ -36,6 +36,7 @@ lr_mult_fusion : 1
 neg_queue: false
 queue_size: 65536
 
+flat_loss: false
 
 # Clip gradient norm
 clip_grad : 5.0

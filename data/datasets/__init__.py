@@ -1,5 +1,4 @@
 from .book_dataset import BookDataset
-from .bookcorpus_dataset import BookCorpusDataset
 from .coco_caption_karpathy_dataset import CocoCaptionKarpathyDataset
 from .conceptual_caption_dataset import ConceptualCaptionDataset
 from .f30k_caption_karpathy_dataset import F30KCaptionKarpathyDataset

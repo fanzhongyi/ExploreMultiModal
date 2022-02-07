@@ -58,13 +58,25 @@ def pretrain_txt(cfg: DictConfig, logger: Logger):
 
     model.cuda()
     if cfg.deepspeed.enable:
+        if cfg.deepspeed.pth2ds is not None:
+            torch_ckpt = torch.load(cfg.deepspeed.pth2ds, map_location='cpu')
+            model.load_from_ckpt(torch_ckpt)
+
         model, optimizer, _, _ = ds_init(
             model=model,
             model_parameters=[p for p in model.parameters() if p.requires_grad],
             dist_init_required=not cfg.dist.distributed,
             config=OmegaConf.to_object(cfg.deepspeed.config),
         )
+        model_without_ddp = model.module
         loss_scaler = None
+
+        if cfg.deepspeed.pth2ds is not None:
+            cfg.train.auto_resume = False
+            logger.warning(
+                f'Init Deepspeed with torch state_dict: {cfg.deepspeed.pth2ds},'
+                f' and disable auto resume ckpt as default.')
+
     else:
         if cfg.dist.distributed:
             model = torch.nn.parallel.DistributedDataParallel(
@@ -278,8 +290,15 @@ def train_one_epoch(model: torch.nn.Module,
             import sys
             sys.exit(1)
 
+        total_loss4backward = total_loss
+        if cfg.train.flat_loss:
+            total_loss4backward = sum([
+                v / v.detach()
+                for k, v in outputs.items()
+                if "task_loss" in k and math.isfinite(v)
+            ])
         if loss_scaler is None:
-            model.backward(total_loss)
+            model.backward(total_loss4backward)
             model.step()
             grad_norm = None
             loss_scale_value = utils.get_loss_scale_for_deepspeed(model)
@@ -287,7 +306,7 @@ def train_one_epoch(model: torch.nn.Module,
             # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(
                 optimizer, 'is_second_order') and optimizer.is_second_order
-            grad_norm = loss_scaler(total_loss,
+            grad_norm = loss_scaler(total_loss4backward,
                                     optimizer,
                                     clip_grad=max_norm,
                                     parameters=model.parameters(),
@@ -335,7 +354,7 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(**metrics)
         metric_logger.update(**opts)
 
-        if wb_logger is not None and it % (print_freq // 2) == 0:
+        if wb_logger is not None and it % print_freq == 0 and it != 0:
             for k in metrics.keys():
                 if isinstance(metrics[k], dict):
                     metrics[k] = metrics[k]['value']

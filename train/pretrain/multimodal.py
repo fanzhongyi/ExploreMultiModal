@@ -291,8 +291,15 @@ def train_one_epoch(model: torch.nn.Module,
             import sys
             sys.exit(1)
 
+        total_loss4backward = total_loss
+        if cfg.train.flat_loss:
+            total_loss4backward = sum([
+                v / v.detach()
+                for k, v in outputs.items()
+                if "task_loss" in k and math.isfinite(v)
+            ])
         if loss_scaler is None:
-            model.backward(total_loss)
+            model.backward(total_loss4backward)
             model.step()
             grad_norm = None
             loss_scale_value = utils.get_loss_scale_for_deepspeed(model)
@@ -300,7 +307,7 @@ def train_one_epoch(model: torch.nn.Module,
             # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(
                 optimizer, 'is_second_order') and optimizer.is_second_order
-            grad_norm = loss_scaler(total_loss,
+            grad_norm = loss_scaler(total_loss4backward,
                                     optimizer,
                                     clip_grad=max_norm,
                                     parameters=model.parameters(),
@@ -355,7 +362,7 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(**metrics)
         metric_logger.update(**opts)
 
-        if wb_logger is not None and it % (print_freq // 2) == 0:
+        if wb_logger is not None and it % print_freq == 0 and it != 0:
             for k in metrics.keys():
                 if isinstance(metrics[k], dict):
                     metrics[k] = metrics[k]['value']

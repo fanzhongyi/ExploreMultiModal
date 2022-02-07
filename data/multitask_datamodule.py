@@ -26,7 +26,7 @@ class MTDataModule:
         self.phase = config.train.phase
 
         self.batch_size = config.data.batch_size
-        self.eval_batch_size = config.data.eval_batch_size or self.batch_size * 2
+        self.eval_batch_size = config.data.eval_batch_size or self.batch_size * 4
 
         self.bg_loader = config.data.bg_loader
 

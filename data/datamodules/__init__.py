@@ -1,5 +1,4 @@
 from .book_datamodule import BookDataModule
-from .bookcorpus_datamodule import BookCorpusDataModule
 from .coco_caption_karpathy_datamodule import CocoCaptionKarpathyDataModule
 from .conceptual_caption_datamodule import ConceptualCaptionDataModule
 from .f30k_caption_karpathy_datamodule import F30KCaptionKarpathyDataModule
@@ -19,5 +18,4 @@ _datamodules = {
     "nlvr2": NLVR2DataModule,
     "book": BookDataModule,
     "wiki": WikiDataModule,
-    "bc": BookCorpusDataModule,
 }
