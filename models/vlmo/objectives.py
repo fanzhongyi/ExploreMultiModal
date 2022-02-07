@@ -133,8 +133,12 @@ def compute_itc(model, batch):
 
     itc_loss = (i2t_loss + t2i_loss) / 2
 
-    itc_i2t_mean_acc, itc_i2t_count = compute_accuracy(sim_i2t, sim_targets)
-    itc_t2i_mean_acc, itc_t2i_count = compute_accuracy(sim_t2i, sim_targets)
+    bs = sim_i2t.size(0)
+
+    itc_i2t_mean_acc, itc_i2t_count = compute_accuracy(sim_i2t[:, :bs],
+                                                       sim_targets)
+    itc_t2i_mean_acc, itc_t2i_count = compute_accuracy(sim_t2i[:, :bs],
+                                                       sim_targets)
 
     ret = {
         'itc_task_loss': itc_loss,
@@ -151,23 +155,27 @@ def compute_itc(model, batch):
     return ret
 
 
-def compute_itm(model, batch, sim_dict):
+def compute_itm(model, batch, sim_dict=None):
 
     txt_ids = batch['text_ids']
     txt_mask = batch['text_mask']
     img = batch['image']
-
-    sim_i2t = sim_dict['sim_i2t']
-    sim_t2i = sim_dict['sim_t2i']
-    bs = sim_t2i.size(0)
+    bs = img.size(0)
 
     # positve pair
     output_pos = model.infer(batch, infer_mode='img-txt')
 
     # negative pair
     with torch.no_grad():
-        weights_i2t = F.softmax(sim_i2t[:, :bs], dim=1) + 1e-5
-        weights_t2i = F.softmax(sim_t2i[:, :bs], dim=1) + 1e-5
+        if sim_dict is not None:
+            sim_i2t = sim_dict['sim_i2t']
+            sim_t2i = sim_dict['sim_t2i']
+            weights_i2t = F.softmax(sim_i2t[:, :bs], dim=1) + 1e-5
+            weights_t2i = F.softmax(sim_t2i[:, :bs], dim=1) + 1e-5
+        else:
+            weights_i2t = F.softmax(torch.randn([bs, bs]), dim=1) + 1e-5
+            weights_t2i = F.softmax(torch.randn([bs, bs]), dim=1) + 1e-5
+
         weights_i2t.fill_diagonal_(0)
         weights_t2i.fill_diagonal_(0)
 

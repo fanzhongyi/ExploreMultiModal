@@ -332,7 +332,8 @@ class VlmoModule(nn.Module):
 
         # Image Text Matching
         if "itm" in self.loss_names:
-            ret.update(objectives.compute_itm(self, batch, ret))
+            itc_ret = ret if "itc" in self.loss_names else None
+            ret.update(objectives.compute_itm(self, batch, itc_ret))
 
         # Visual Question Answering
         if "vqa" in self.loss_names:
