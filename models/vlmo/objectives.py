@@ -246,22 +246,9 @@ def compute_vqa(model, batch):
     vqa_targets = batch["vqa_targets"]
 
     if torch.sum(vqa_targets) > 0.0:
-
-        if model.config.train.loss_fn == 'bce':
-            vqa_loss = (
-                F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
-                vqa_targets.shape[1])
-        elif model.config.train.loss_fn == 'ce':
-            vqa_loss = (F.cross_entropy(vqa_logits, vqa_targets) *
-                        vqa_targets.shape[1])
-        elif model.config.train.loss_fn == 'kl':
-            vqa_logits = torch.log_softmax(vqa_logits, dim=-1)
-            vqa_loss = (F.kl_div(vqa_logits, vqa_targets) *
-                        vqa_targets.shape[1])
-        else:
-            vqa_loss = (
-                F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
-                vqa_targets.shape[1])
+        vqa_loss = (
+            F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
+            vqa_targets.shape[1])
 
         vqa_mean_score, vqa_count = compute_vqa_score(vqa_logits, vqa_targets)
 
@@ -273,6 +260,34 @@ def compute_vqa(model, batch):
             "vqa_count": vqa_count,
         }
         ret.update(train_ret)
+
+        if model.config.train.kl_alpha > 0.:
+            infer_2 = model.infer(batch,
+                                  infer_mode='img-txt',
+                                  mask_txt=False,
+                                  mask_img=False)
+            vqa_logits_2 = model.vqa_classifier(infer_2["cls_feats"])
+            vqa_loss_2 = (
+                F.binary_cross_entropy_with_logits(vqa_logits_2, vqa_targets) *
+                vqa_targets.shape[1])
+
+            vqa_loss = (vqa_loss + vqa_loss_2) / 2.
+
+            num_classes = vqa_targets.shape[1]
+            p = torch.log_softmax(vqa_logits.view(-1, num_classes), dim=-1)
+            p_tec = torch.softmax(vqa_logits.view(-1, num_classes), dim=-1)
+            q = torch.log_softmax(vqa_logits_2.view(-1, num_classes), dim=-1)
+            q_tec = torch.softmax(vqa_logits_2.view(-1, num_classes), dim=-1)
+            kl = torch.nn.functional.kl_div(p, q_tec, reduction='none').sum()
+            r_kl = torch.nn.functional.kl_div(q, p_tec, reduction='none').sum()
+
+            kl_loss = (kl + r_kl) * model.config.train.kl_alpha
+
+            kl_ret = {
+                "vqa_task_loss": vqa_loss,
+                "vqa_kl_task_loss": kl_loss,
+            }
+            ret.update(kl_ret)
 
     return ret
 

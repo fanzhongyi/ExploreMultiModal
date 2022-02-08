@@ -9,8 +9,8 @@ loss_names:
 datasets:
   - vqa
 
-# vqa loss_fn: bce, ce, kl
-loss_fn: bce
+# R-Drop alpha
+kl_alpha: 0.
 
 start_epoch : 0
 epochs : 10
