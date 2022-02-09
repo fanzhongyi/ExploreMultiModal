@@ -2,7 +2,8 @@ type : 'VLMO'
 name : 'vlmo_base'
 
 # itc temperature
-temp: 0.07
+itc_temp: 0.07
+itc_dim: 256
 
 # vocab_size : 49408
 vocab_size : 30522

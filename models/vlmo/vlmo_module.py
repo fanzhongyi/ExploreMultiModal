@@ -54,10 +54,10 @@ class VlmoModule(nn.Module):
             self.mlm_head.apply(self.transformer._init_weights)
 
         if 'itc' in self.loss_names:
-            self.itc_head = ITCHead(hs)
+            self.itc_head = ITCHead(hs, model_cfg.itc_dim)
             self.itc_head.apply(self.transformer._init_weights)
             self.itc_temp = nn.Parameter(
-                torch.ones([]) * np.log(1 / config.model.temp))
+                torch.ones([]) * np.log(1 / model_cfg.itc_temp))
 
         if 'itm' in self.loss_names:
             self.itm_head = ITMHead(hs)
@@ -113,8 +113,10 @@ class VlmoModule(nn.Module):
 
         if hasattr(config.train, 'neg_queue') and config.train.neg_queue:
             self.q_size = config.train.queue_size
-            self.register_buffer("img_queue", torch.randn(hs, self.q_size))
-            self.register_buffer("txt_queue", torch.randn(hs, self.q_size))
+            self.register_buffer("img_queue",
+                                 torch.randn(model_cfg.itc_dim, self.q_size))
+            self.register_buffer("txt_queue",
+                                 torch.randn(model_cfg.itc_dim, self.q_size))
             self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
             self.img_queue = nn.functional.normalize(self.img_queue, dim=0)
             self.txt_queue = nn.functional.normalize(self.txt_queue, dim=0)

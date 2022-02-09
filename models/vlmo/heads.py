@@ -23,15 +23,13 @@ class MLMHead(nn.Module):
 
 class ITCHead(nn.Module):
 
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, out_size):
         super().__init__()
-        self.dense = nn.Linear(hidden_size, hidden_size)
-        # self.LayerNorm = nn.LayerNorm(hidden_size, elementwise_affine=True)
+        self.dense = nn.Linear(hidden_size, out_size)
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
         hidden_states = nn.functional.normalize(hidden_states, dim=-1)
-        # hidden_states = self.LayerNorm(hidden_states)
         return hidden_states
 
 
