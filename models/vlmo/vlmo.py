@@ -127,7 +127,7 @@ class Attention(nn.Module):
         return x, attn
 
 
-class Block(nn.Module):
+class OldBlock(nn.Module):
 
     def __init__(
         self,
@@ -181,6 +181,90 @@ class Block(nn.Module):
             x = x + self.drop_path(self.gamma_1 * _x)
             x = x + self.drop_path(
                 self.gamma_2 * self.mlp(self.norm2(x), route=route))
+        return x, attn
+
+
+class Block(nn.Module):
+
+    def __init__(
+        self,
+        dim,
+        num_heads,
+        mlp_ratio=4.0,
+        qkv_bias=False,
+        qk_scale=None,
+        drop=0.0,
+        attn_drop=0.0,
+        drop_path=0.0,
+        init_values=None,
+        act_layer=nn.GELU,
+        norm_layer=nn.LayerNorm,
+    ):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            attn_drop=attn_drop,
+            proj_drop=drop,
+        )
+        self.drop_path = DropPath(
+            drop_path) if drop_path > 0.0 else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = nn.ModuleDict({
+            'v':
+                Mlp(in_features=dim,
+                    hidden_features=mlp_hidden_dim,
+                    act_layer=act_layer,
+                    drop=drop),
+            'l':
+                Mlp(in_features=dim,
+                    hidden_features=mlp_hidden_dim,
+                    act_layer=act_layer,
+                    drop=drop),
+            'vl':
+                Mlp(in_features=dim,
+                    hidden_features=mlp_hidden_dim,
+                    act_layer=act_layer,
+                    drop=drop),
+        })
+        if init_values is not None and init_values > 0:
+            self.gamma_1 = nn.ParameterDict({
+                'v':
+                    nn.Parameter(init_values * torch.ones((dim)),
+                                 requires_grad=True),
+                'l':
+                    nn.Parameter(torch.ones((dim)), requires_grad=True),
+                'vl':
+                    nn.Parameter(init_values * torch.ones((dim)),
+                                 requires_grad=True)
+            })
+            self.gamma_2 = nn.ParameterDict({
+                'v':
+                    nn.Parameter(init_values * torch.ones((dim)),
+                                 requires_grad=True),
+                'l':
+                    nn.Parameter(torch.ones((dim)), requires_grad=True),
+                'vl':
+                    nn.Parameter(init_values * torch.ones((dim)),
+                                 requires_grad=True)
+            })
+        else:
+            self.gamma_1, self.gamma_2 = None, None
+
+    def forward(self, x, mask=None, route='vl'):
+        _x, attn = self.attn(self.norm1(x), mask=mask)
+
+        if self.gamma_1 is None:
+            x = x + self.drop_path(_x)
+            x = x + self.drop_path(self.mlp[route](self.norm2(x)))
+        else:
+            x = x + self.drop_path(self.gamma_1[route] * _x)
+            x = x + self.drop_path(
+                self.gamma_2[route] * self.mlp[route](self.norm2(x)))
         return x, attn
 
 

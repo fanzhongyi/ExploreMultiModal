@@ -128,13 +128,13 @@ class VlmoModule(nn.Module):
 
         if self.config.train.phase in ['pretrain_txt']:
             for b in self.transformer.blocks:
-                del b.mlp.vl_mlp
+                del b.mlp.vl
                 for p in b.attn.parameters():
                     p.requires_grad = False
 
         elif self.config.train.phase in ['pretrain_mum', 'finetune_vqa']:
             for b in self.transformer.blocks[:self.transformer.fusion_layer]:
-                del b.mlp.vl_mlp
+                del b.mlp.vl
 
     def _adjust_downstream_params(self):
 
@@ -216,11 +216,18 @@ class VlmoModule(nn.Module):
 
         for k in list(state_dict.keys()):
             if "mlp" in k:
-                state_dict[k.replace(".mlp", ".mlp.v_mlp")] = state_dict[k]
+                state_dict[k.replace(".mlp", ".mlp.v")] = state_dict[k]
                 del state_dict[k]
             if 'cls_token' in k:
                 state_dict[k.replace("cls_token",
                                      "img_cls_token")] = state_dict[k]
+                del state_dict[k]
+
+            if 'gamma_1' in k:
+                state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
+                del state_dict[k]
+            if 'gamma_2' in k:
+                state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
                 del state_dict[k]
 
         matching = self.transformer.load_state_dict(state_dict, strict=False)
