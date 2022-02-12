@@ -201,7 +201,11 @@ class Block(nn.Module):
         norm_layer=nn.LayerNorm,
     ):
         super().__init__()
-        self.norm1 = norm_layer(dim)
+        self.norm1 = nn.ModuleDict({
+            'v': norm_layer(dim),
+            'l': norm_layer(dim),
+            'vl': norm_layer(dim),
+        })
         self.attn = Attention(
             dim,
             num_heads=num_heads,
@@ -212,7 +216,11 @@ class Block(nn.Module):
         )
         self.drop_path = DropPath(
             drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = norm_layer(dim)
+        self.norm2 = nn.ModuleDict({
+            'v': norm_layer(dim),
+            'l': norm_layer(dim),
+            'vl': norm_layer(dim),
+        })
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = nn.ModuleDict({
             'v':
@@ -256,15 +264,15 @@ class Block(nn.Module):
             self.gamma_1, self.gamma_2 = None, None
 
     def forward(self, x, mask=None, route='vl'):
-        _x, attn = self.attn(self.norm1(x), mask=mask)
+        _x, attn = self.attn(self.norm1[route](x), mask=mask)
 
         if self.gamma_1 is None:
             x = x + self.drop_path(_x)
-            x = x + self.drop_path(self.mlp[route](self.norm2(x)))
+            x = x + self.drop_path(self.mlp[route](self.norm2[route](x)))
         else:
             x = x + self.drop_path(self.gamma_1[route] * _x)
             x = x + self.drop_path(
-                self.gamma_2[route] * self.mlp[route](self.norm2(x)))
+                self.gamma_2[route] * self.mlp[route](self.norm2[route](x)))
         return x, attn
 
 

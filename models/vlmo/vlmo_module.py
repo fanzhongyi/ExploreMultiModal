@@ -220,7 +220,6 @@ class VlmoModule(nn.Module):
             if '.mlp.l_mlp' in k:
                 state_dict[k.replace(".mlp.l_mlp", ".mlp.l")] = state_dict[k]
                 del state_dict[k]
-
             if 'mlp.vl_mlp' in k:
                 state_dict[k.replace(".mlp.vl_mlp", ".mlp.vl")] = state_dict[k]
                 del state_dict[k]
@@ -229,7 +228,6 @@ class VlmoModule(nn.Module):
                 state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
                 state_dict[k.replace("gamma_1", "gamma_1.l")] = state_dict[k]
                 state_dict[k.replace("gamma_1", "gamma_1.vl")] = state_dict[k]
-
             if k.endswith('gamma_2'):
                 state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
                 state_dict[k.replace("gamma_2", "gamma_2.l")] = state_dict[k]
@@ -256,6 +254,13 @@ class VlmoModule(nn.Module):
                 del state_dict[k]
             if 'gamma_2' in k:
                 state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
+                del state_dict[k]
+
+            if 'norm1' in k:
+                state_dict[k.replace("norm1", "norm1.v")] = state_dict[k]
+                del state_dict[k]
+            if 'norm2' in k:
+                state_dict[k.replace("norm2", "norm2.v")] = state_dict[k]
                 del state_dict[k]
 
         matching = self.transformer.load_state_dict(state_dict, strict=False)
