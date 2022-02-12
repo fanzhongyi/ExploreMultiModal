@@ -50,7 +50,9 @@ class VlmoModule(nn.Module):
         # ===================== Pretrain ===================== #
 
         if 'mlm' in self.loss_names:
-            self.mlm_head = MLMHead(self.transformer.bert_config)
+            self.mlm_head = MLMHead(
+                self.transformer.bert_config,
+                weight=self.transformer.txt_embeddings.word_embeddings.weight)
             self.mlm_head.apply(self.transformer._init_weights)
 
         if 'itc' in self.loss_names:
@@ -64,8 +66,13 @@ class VlmoModule(nn.Module):
             self.itm_head.apply(self.transformer._init_weights)
 
         if 'mim' in self.loss_names:
-            self.mim_head = MPPHead(self.transformer.bert_config)
-            self.mim_head.apply(self.transformer._init_weights)
+            self.d_vae = objectives.create_d_vae(
+                weight_path=config.discrete_vae_weight_path,
+                d_vae_type=config.discrete_vae_type,
+                device=None,
+                image_size=config.second_input_size)
+            # self.mim_head = MPPHead(self.transformer.bert_config)
+            # self.mim_head.apply(self.transformer._init_weights)
 
         if 'mpp' in self.loss_names:
             self.mpp_head = MPPHead(self.transformer.bert_config)
