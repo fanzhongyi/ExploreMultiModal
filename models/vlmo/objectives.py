@@ -281,7 +281,7 @@ def compute_vqa(model, batch):
             kl = torch.nn.functional.kl_div(p, q_tec, reduction='none').sum()
             r_kl = torch.nn.functional.kl_div(q, p_tec, reduction='none').sum()
 
-            kl_loss = (kl + r_kl) * model.config.train.kl_alpha
+            kl_loss = (kl + r_kl) / 4 * model.config.train.kl_alpha
 
             kl_ret = {
                 "vqa_task_loss": vqa_loss,

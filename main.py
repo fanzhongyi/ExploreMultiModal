@@ -115,7 +115,9 @@ def setup(cfg: DictConfig) -> None:
     os.makedirs(code_dir, exist_ok=True)
     if utils.get_rank() == 0:
         os.system(f' find . -path "**/output/**" -prune '
-                  f' -name "*.yaml" -o -name "*.py" '
+                  f' -name "*.json" '
+                  f'-o -name "*.yaml" '
+                  f'-o -name "*.py" '
                   f' -type f | xargs tar -czvf {code_dir}/code.tar.gz ')
 
     if utils.get_rank() == 0:

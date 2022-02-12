@@ -363,7 +363,7 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(**metrics)
         metric_logger.update(**opts)
 
-        if wb_logger is not None and it % print_freq == 0 and it != 0:
+        if wb_logger is not None and it % print_freq == 0 and it / print_freq > 3.:
             for k in metrics.keys():
                 if isinstance(metrics[k], dict):
                     metrics[k] = metrics[k]['value']

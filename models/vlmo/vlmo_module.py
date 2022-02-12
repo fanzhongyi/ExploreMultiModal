@@ -71,8 +71,6 @@ class VlmoModule(nn.Module):
                 d_vae_type=config.discrete_vae_type,
                 device=None,
                 image_size=config.second_input_size)
-            # self.mim_head = MPPHead(self.transformer.bert_config)
-            # self.mim_head.apply(self.transformer._init_weights)
 
         if 'mpp' in self.loss_names:
             self.mpp_head = MPPHead(self.transformer.bert_config)
@@ -213,6 +211,29 @@ class VlmoModule(nn.Module):
         return state_dict
 
     def _load_vlmo(self, state_dict):
+
+        for k in list(state_dict.keys()):
+            # NOTE: Backward compatibility
+            if '.mlp.v_mlp' in k:
+                state_dict[k.replace(".mlp.v_mlp", ".mlp.v")] = state_dict[k]
+                del state_dict[k]
+            if '.mlp.l_mlp' in k:
+                state_dict[k.replace(".mlp.l_mlp", ".mlp.l")] = state_dict[k]
+                del state_dict[k]
+
+            if 'mlp.vl_mlp' in k:
+                state_dict[k.replace(".mlp.vl_mlp", ".mlp.vl")] = state_dict[k]
+                del state_dict[k]
+
+            if k.endswith('gamma_1'):
+                state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
+                state_dict[k.replace("gamma_1", "gamma_1.l")] = state_dict[k]
+                state_dict[k.replace("gamma_1", "gamma_1.vl")] = state_dict[k]
+
+            if k.endswith('gamma_2'):
+                state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
+                state_dict[k.replace("gamma_2", "gamma_2.l")] = state_dict[k]
+                state_dict[k.replace("gamma_2", "gamma_2.vl")] = state_dict[k]
 
         matching = self.load_state_dict(state_dict, strict=False)
         self._adjust_downstream_params()
