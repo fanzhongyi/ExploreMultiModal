@@ -88,13 +88,18 @@ class BaseDataset(Dataset):
     def get_image(self, index, image_key="image"):
         index, _ = self.index_mapper[index]
         image_bytes = self.table[image_key][index].as_py()
-        # image_bytes_array = np.frombuffer(image_bytes, dtype=np.uint8)
         image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
         if self.transform:
             image = self.transform(image)
 
+        if isinstance(image, tuple):
+            image, image4dalle = image[0], image[1]
+        else:
+            image4dalle = image
+
         return {
             "image": image,
+            "image4dalle": image4dalle,
             "img_index": self.index_mapper[index][0],
             "cap_index": self.index_mapper[index][1],
             "raw_index": index,
@@ -128,22 +133,22 @@ class BaseDataset(Dataset):
             'text_labels_mlm': mlms['labels'].squeeze(0),
         }
 
-    def get_mim(self, raw_image, mask_generator):
+    def get_mim(self, raw_image):
         return {
-            'image': raw_image,
-            'image_mask': mask_generator,
+            'image_bool_masked_pos': self.image_mask_generator(),
         }
 
     def get_suite(self, index):
         ret = dict()
-        result = None
 
+        result = None
         while result is None:
             try:
                 ret = dict()
                 ret.update(self.get_image(index))
                 ret.update(self.get_text(index))
                 ret.update(self.get_mlm(ret['text_ids']))
+                ret.update(self.get_mim(ret['image']))
 
                 ret = {k: ret[k] for k in ret if '_index' not in k}
 

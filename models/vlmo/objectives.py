@@ -5,6 +5,7 @@ import os
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+from models.modeling_discrete_vae import Dalle_VAE, DiscreteVAE
 
 
 def compute_vqa_score(logits, target):
@@ -335,39 +336,103 @@ def dequeue_and_enqueue(model, image_feat, text_feat):
 # ################### WIP ######################
 
 
-def compute_mim(pl_module, batch):
-    infer = pl_module.infer(batch, mask_txt=False, mask_img=True)
-    mpp_logits = pl_module.mim_head(infer["image_feats"])
-    mpp_logits = torch.stack(
-        [
-            mpp_logits[:, :, 0:256],
-            mpp_logits[:, :, 256:512],
-            mpp_logits[:, :, 512:768],
-        ],
-        dim=2,
-    )
-    mpp_labels = infer["image_labels"]
+def compute_mim(module, batch):
 
-    mpp_loss = F.cross_entropy(
-        mpp_logits.view(-1, 256),
-        mpp_labels.view(-1),
-        ignore_index=-100,
-    )
+    with torch.no_grad():
+        input_ids = module.d_vae.get_codebook_indices(
+            batch['image4dalle']).flatten(1)
+        batch['image_bool_masked_pos'] = batch['image_bool_masked_pos'].flatten(
+            1).to(torch.bool)
+        bool_masked_pos = batch['image_bool_masked_pos']
+        mim_labels = input_ids[bool_masked_pos]
+
+    if module.config.train.mim_head_pos in ['img']:
+        infer = module.infer(
+            batch,
+            infer_mode='img_only',
+            mask_txt=False,
+            mask_img=True,
+        )
+    elif module.config.train.mim_head_pos in ['mum']:
+        infer = module.infer(
+            batch,
+            infer_mode='img-txt',
+            mask_txt=False,
+            mask_img=True,
+        )
+    elif module.config.train.mim_head_pos in ['fusion']:
+        img_feats = module.transformer.forward_interval(
+            x=batch['image'],
+            attn_masks=None,
+            route='v',
+            need_embed=True,
+            bool_masked_pos=bool_masked_pos,
+            in_layer=0,
+            out_layer=module.transformer.fusion_layer,
+            need_norm=True,
+        )
+        infer = {"img_feats": img_feats}
+
+    patch_x = infer["img_feats"][:, 1:]
+    masked_patch_x = patch_x[bool_masked_pos]
+
+    mim_logits = module.mim_head(masked_patch_x)
+
+    mim_mean_acc, mim_count = compute_accuracy(mim_logits, mim_labels)
+
+    if mim_count > 0:
+        mim_loss = F.cross_entropy(
+            mim_logits.view(-1, module.config.model.img_vocab_size),
+            mim_labels.view(-1),
+        )
+    else:
+        mim_loss = 0.
 
     ret = {
-        "mpp_loss": mpp_loss,
-        "mpp_logits": mpp_logits,
-        "mpp_labels": mpp_labels,
+        "mim_task_loss": mim_loss,
+        "mim_logits": mim_loss,
+        "mim_labels": mim_labels,
+        "mim_mean_acc": mim_mean_acc,
+        "mim_count": mim_count,
     }
 
-    phase = "train" if pl_module.training else "val"
-    loss = getattr(pl_module, f"{phase}_mpp_loss")(ret["mpp_loss"])
-    acc = getattr(pl_module, f"{phase}_mpp_accuracy")(ret["mpp_logits"],
-                                                      ret["mpp_labels"])
-    pl_module.log(f"mpp/{phase}/loss", loss)
-    pl_module.log(f"mpp/{phase}/accuracy", acc)
-
     return ret
+
+
+def create_d_vae(weight_path, d_vae_type, image_size, device):
+    if d_vae_type == "dall-e":
+        return get_dalle_vae(weight_path, image_size, device)
+    elif d_vae_type == "customized":
+        return get_d_vae(weight_path, image_size, device)
+    else:
+        raise NotImplementedError()
+
+
+def get_dalle_vae(weight_path, image_size, device):
+    vae = Dalle_VAE(image_size)
+    vae.load_model(model_dir=weight_path, device=device)
+    return vae
+
+
+def get_d_vae(weight_path, image_size, device):
+    NUM_TOKENS = 8192
+    NUM_LAYERS = 3
+    EMB_DIM = 512
+    HID_DIM = 256
+
+    state_dict = torch.load(os.path.join(weight_path, "pytorch_model.bin"),
+                            map_location="cpu")["weights"]
+
+    model = DiscreteVAE(
+        image_size=image_size,
+        num_layers=NUM_LAYERS,
+        num_tokens=NUM_TOKENS,
+        codebook_dim=EMB_DIM,
+        hidden_dim=HID_DIM,
+    ).to(device)
+
+    model.load_state_dict(state_dict)
+    return model
 
 
 # ################### END ######################

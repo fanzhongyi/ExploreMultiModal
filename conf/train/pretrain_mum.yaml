@@ -7,6 +7,7 @@ loss_names:
   - mlm
   - itc
   - itm
+  - mim
 
 datasets:
   - vg
@@ -37,6 +38,13 @@ neg_queue: false
 queue_size: 65536
 
 flat_loss: false
+
+# MIM
+# discrete Vae
+discrete_vae_weight_path: weight/dalle/
+discrete_vae_type: dall-e
+
+mim_head_pos: img # fusion, mum, img
 
 # Clip gradient norm
 clip_grad : 5.0

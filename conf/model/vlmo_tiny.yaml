@@ -5,6 +5,8 @@ name : 'vlmo_tiny'
 itc_temp: 0.07
 itc_dim: 64
 
+img_vocab_size : 8192
+
 # vocab_size : 49408
 vocab_size : 30522
 max_text_len: 40

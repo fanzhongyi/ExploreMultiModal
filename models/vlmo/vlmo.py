@@ -3,9 +3,7 @@
         VLMO Backbone, without task specified Head, used only for forward_features.
 
     TODO:
-        1. adapt to nvlr2, done
-        2. use token_type_embeddings of transformers
-        3. add 2d position embedding option.
+        1. add 2d position embedding option.
 
     FIXME:
         1. fusion_layer should be treated as a model parameter or a forward parameter ?
@@ -36,33 +34,6 @@ def LayerNorm(normalized_shape,
         except ImportError:
             pass
     return nn.LayerNorm(normalized_shape, eps, elementwise_affine)
-
-
-class MoMEMlp(nn.Module):
-
-    def __init__(self,
-                 in_features,
-                 hidden_features=None,
-                 out_features=None,
-                 act_layer=nn.GELU,
-                 drop=0.):
-        super().__init__()
-        self.v_mlp = Mlp(in_features, hidden_features, out_features, act_layer,
-                         drop)
-        self.l_mlp = Mlp(in_features, hidden_features, out_features, act_layer,
-                         drop)
-        self.vl_mlp = Mlp(in_features, hidden_features, out_features, act_layer,
-                          drop)
-
-    def forward(self, x, route='vl'):
-        assert route in ['v', 'l', 'vl']
-        if route == 'v':
-            x = self.v_mlp(x)
-        elif route == 'l':
-            x = self.l_mlp(x)
-        elif route == 'vl':
-            x = self.vl_mlp(x)
-        return x
 
 
 class Attention(nn.Module):
@@ -127,63 +98,6 @@ class Attention(nn.Module):
         return x, attn
 
 
-class OldBlock(nn.Module):
-
-    def __init__(
-        self,
-        dim,
-        num_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        qk_scale=None,
-        drop=0.0,
-        attn_drop=0.0,
-        drop_path=0.0,
-        init_values=None,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-    ):
-        super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.attn = Attention(
-            dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            qk_scale=qk_scale,
-            attn_drop=attn_drop,
-            proj_drop=drop,
-        )
-        self.drop_path = DropPath(
-            drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = MoMEMlp(
-            in_features=dim,
-            hidden_features=mlp_hidden_dim,
-            act_layer=act_layer,
-            drop=drop,
-        )
-        if init_values is not None and init_values > 0:
-            self.gamma_1 = nn.Parameter(init_values * torch.ones((dim)),
-                                        requires_grad=True)
-            self.gamma_2 = nn.Parameter(init_values * torch.ones((dim)),
-                                        requires_grad=True)
-        else:
-            self.gamma_1, self.gamma_2 = None, None
-
-    def forward(self, x, mask=None, route='vl'):
-        _x, attn = self.attn(self.norm1(x), mask=mask)
-
-        if self.gamma_1 is None:
-            x = x + self.drop_path(_x)
-            x = x + self.drop_path(self.mlp(self.norm2(x), route=route))
-        else:
-            x = x + self.drop_path(self.gamma_1 * _x)
-            x = x + self.drop_path(
-                self.gamma_2 * self.mlp(self.norm2(x), route=route))
-        return x, attn
-
-
 class Block(nn.Module):
 
     def __init__(
@@ -201,11 +115,12 @@ class Block(nn.Module):
         norm_layer=nn.LayerNorm,
     ):
         super().__init__()
-        self.norm1 = nn.ModuleDict({
-            'v': norm_layer(dim),
-            'l': norm_layer(dim),
-            'vl': norm_layer(dim),
-        })
+        self.norm1 = norm_layer(dim)
+        # self.norm1 = nn.ModuleDict({
+        #     'v': norm_layer(dim),
+        #     'l': norm_layer(dim),
+        #     'vl': norm_layer(dim),
+        # })
         self.attn = Attention(
             dim,
             num_heads=num_heads,
@@ -216,11 +131,12 @@ class Block(nn.Module):
         )
         self.drop_path = DropPath(
             drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = nn.ModuleDict({
-            'v': norm_layer(dim),
-            'l': norm_layer(dim),
-            'vl': norm_layer(dim),
-        })
+        self.norm2 = norm_layer(dim)
+        # self.norm2 = nn.ModuleDict({
+        #     'v': norm_layer(dim),
+        #     'l': norm_layer(dim),
+        #     'vl': norm_layer(dim),
+        # })
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = nn.ModuleDict({
             'v':
@@ -264,15 +180,15 @@ class Block(nn.Module):
             self.gamma_1, self.gamma_2 = None, None
 
     def forward(self, x, mask=None, route='vl'):
-        _x, attn = self.attn(self.norm1[route](x), mask=mask)
+        _x, attn = self.attn(self.norm1(x), mask=mask)
 
         if self.gamma_1 is None:
             x = x + self.drop_path(_x)
-            x = x + self.drop_path(self.mlp[route](self.norm2[route](x)))
+            x = x + self.drop_path(self.mlp[route](self.norm2(x)))
         else:
             x = x + self.drop_path(self.gamma_1[route] * _x)
             x = x + self.drop_path(
-                self.gamma_2[route] * self.mlp[route](self.norm2[route](x)))
+                self.gamma_2[route] * self.mlp[route](self.norm2(x)))
         return x, attn
 
 
@@ -299,24 +215,6 @@ class VLMO(nn.Module):
         max_text_len=27,
         fusion_layer=3,
     ):
-        """
-        Args:
-            img_size (int, tuple): input image size
-            patch_size (int, tuple): patch size
-            in_chans (int): number of input channels
-            num_classes (int): number of classes for classification head
-            embed_dim (int): embedding dimension
-            depth (int): depth of transformer
-            num_heads (int): number of attention heads
-            mlp_ratio (int): ratio of mlp hidden dim to embedding dim
-            qkv_bias (bool): enable bias for qkv if True
-            qk_scale (float): override default qk scale of head_dim ** -0.5 if set
-            drop_rate (float): dropout rate
-            attn_drop_rate (float): attention dropout rate
-            drop_path_rate (float): stochastic depth rate
-            norm_layer: (nn.Module): normalization layer
-            hybrid_backbone (nn.Module): CNN backbone to use in-place of PatchEmbed module
-        """
         super().__init__()
 
         self.num_classes = num_classes
@@ -358,8 +256,8 @@ class VLMO(nn.Module):
         #  provided by BertTokenizer
         #  self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         #  self.txt_cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.img_cls_token = nn.parameter.Parameter(torch.zeros(
-            1, 1, embed_dim))
+        self.img_cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.img_mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
         self.fusion_layer = fusion_layer
 
@@ -390,10 +288,22 @@ class VLMO(nn.Module):
         trunc_normal_(self.img_cls_token, std=0.02)
         self.apply(self._init_weights)
 
-    def embed_img(self, x, img_masks, img_token_type_idx=1):
+    def embed_img(self,
+                  x,
+                  img_masks,
+                  bool_masked_pos=None,
+                  img_token_type_idx=1):
         # img_token_type_idx for nlvr2
         x = self.patch_embed(x)
-        img_cls_token = self.img_cls_token.expand(x.size(0), -1, -1)
+        batch_size, seq_len, _ = x.size()
+
+        img_cls_token = self.img_cls_token.expand(batch_size, -1, -1)
+        img_mask_token = self.img_mask_token.expand(batch_size, seq_len, -1)
+
+        if bool_masked_pos is not None:
+            w = bool_masked_pos.unsqueeze(-1).type_as(img_mask_token)
+            x = x * (1 - w) + img_mask_token * w
+
         x = torch.cat((img_cls_token, x), dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
@@ -401,17 +311,18 @@ class VLMO(nn.Module):
             torch.full_like(img_masks, fill_value=img_token_type_idx))
         return x
 
-    def embed_txt(self, x, txt_masks):
+    def embed_txt(self, x, txt_attn_masks):
         x = self.txt_embeddings(x)
-        x = x + self.token_type_embeddings(torch.zeros_like(txt_masks))
+        x = x + self.token_type_embeddings(torch.zeros_like(txt_attn_masks))
         return x
 
     def forward_interval(
         self,
         x,
-        masks,
+        attn_masks,
         route=None,
         need_embed=False,
+        bool_masked_pos=None,
         in_layer=None,
         out_layer=None,
         img_token_type_idx=1,
@@ -421,12 +332,18 @@ class VLMO(nn.Module):
 
         if need_embed:
             if route in ['v']:
-                x = self.embed_img(x, masks, img_token_type_idx)
+                B = x.size(0)
+                attn_masks = attn_masks or torch.ones(
+                    [B, self.patch_embed.num_patches + 1],
+                    dtype=torch.int64,
+                    device=x.device)
+                x = self.embed_img(x, attn_masks, bool_masked_pos,
+                                   img_token_type_idx)
             elif route in ['l']:
-                x = self.embed_txt(x, masks)
+                x = self.embed_txt(x, attn_masks)
 
         for _, blk in enumerate(self.blocks[in_layer:out_layer]):
-            x, _ = blk(x, mask=x, route=route)
+            x, _ = blk(x, mask=attn_masks, route=route)
 
         return self.norm(x) if need_norm else x
 
@@ -434,68 +351,75 @@ class VLMO(nn.Module):
         self,
         img=None,
         txt=None,
-        img_masks=None,
-        txt_masks=None,
+        img_attn_masks=None,
+        txt_attn_masks=None,
+        bool_masked_pos=None,
         fusion_layer=None,
         img_token_type_idx=1,
     ):
 
         # forward_img_features
         if txt is None:
-            img_embeds = self.embed_img(img, img_masks, img_token_type_idx)
+            img_embeds = self.embed_img(img, img_attn_masks, bool_masked_pos,
+                                        img_token_type_idx)
             x = img_embeds
             for _, blk in enumerate(self.blocks):
-                x, _ = blk(x, mask=img_masks, route='v')
+                x, _ = blk(x, mask=img_attn_masks, route='v')
 
             x = self.norm(x)
-            return x, img_masks
+            return x, img_attn_masks
 
         # forward_txt_features
         if img is None:
-            txt_embeds = self.embed_txt(txt, txt_masks)
+            txt_embeds = self.embed_txt(txt, txt_attn_masks)
             x = txt_embeds
             for _, blk in enumerate(self.blocks):
-                x, _ = blk(x, mask=txt_masks, route='l')
+                x, _ = blk(x, mask=txt_attn_masks, route='l')
 
             x = self.norm(x)
-            return x, txt_masks
+            return x, txt_attn_masks
 
         # forward txt & img features
         # [T_CLS], w_i, ..., [T_SEP], [PAD], ... | [I_CLS], v_i, ..., [PAD]
-        img_embeds = self.embed_img(img, img_masks, img_token_type_idx)
-        txt_embeds = self.embed_txt(txt, txt_masks)
+        img_embeds = self.embed_img(
+            img,
+            img_attn_masks,
+            bool_masked_pos,
+            img_token_type_idx,
+        )
+        txt_embeds = self.embed_txt(txt, txt_attn_masks)
 
         fusion_layer = fusion_layer or self.fusion_layer
         assert 0 <= fusion_layer <= self.bert_config.num_hidden_layers
 
         for blk in self.blocks[:fusion_layer]:
-            img_embeds, _ = blk(img_embeds, mask=img_masks, route='v')
-            txt_embeds, _ = blk(txt_embeds, mask=txt_masks, route='l')
+            img_embeds, _ = blk(img_embeds, mask=img_attn_masks, route='v')
+            txt_embeds, _ = blk(txt_embeds, mask=txt_attn_masks, route='l')
 
         co_embeds = torch.cat([txt_embeds, img_embeds], dim=1)
-        co_masks = torch.cat([txt_masks, img_masks], dim=1)
+        co_attn_masks = torch.cat([txt_attn_masks, img_attn_masks], dim=1)
 
         x = co_embeds
         for blk in self.blocks[fusion_layer:]:
-            x, _ = blk(x, mask=co_masks, route='vl')
+            x, _ = blk(x, mask=co_attn_masks, route='vl')
 
         x = self.norm(x)
-        return x, co_masks
+        return x, co_attn_masks
 
     def forward(
         self,
         img=None,
         txt=None,
-        img_masks=None,
-        txt_masks=None,
+        img_attn_masks=None,
+        txt_attn_masks=None,
         fusion_layer=None,
         img_token_type_idx=1,
     ):
         x, x_mask = self.forward_features(
             img=img,
             txt=txt,
-            img_masks=img_masks,
-            txt_masks=txt_masks,
+            img_attn_masks=img_attn_masks,
+            txt_attn_masks=txt_attn_masks,
             fusion_layer=fusion_layer,
             img_token_type_idx=img_token_type_idx,
         )
@@ -621,9 +545,9 @@ if __name__ == "__main__":
 
     res = vlmo.forward_features(
         img=img,
-        img_masks=torch.ones([3, 197], dtype=torch.int),
+        img_attn_masks=torch.ones([3, 197], dtype=torch.int),
         txt=txt['input_ids'],
-        txt_masks=txt['attention_mask'],
+        txt_attn_masks=txt['attention_mask'],
         fusion_layer=5,
     )
     print(type(res[0]))
@@ -634,7 +558,7 @@ if __name__ == "__main__":
 
     res = vlmo.forward_features(
         txt=txt['input_ids'],
-        txt_masks=txt['attention_mask'],
+        txt_attn_masks=txt['attention_mask'],
     )
     print(type(res[0]))
     print(res[0].size())
@@ -644,7 +568,7 @@ if __name__ == "__main__":
 
     res = vlmo.forward_features(
         img=img,
-        img_masks=torch.ones([3, 197], dtype=torch.int),
+        img_attn_masks=torch.ones([3, 197], dtype=torch.int),
     )
     print(type(res[0]))
     print(res[0].size())

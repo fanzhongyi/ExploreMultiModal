@@ -2,7 +2,8 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataset import ConcatDataset
 from torch.utils.data.distributed import DistributedSampler
 
-from .bg_dataloader import DataLoaderX
+from data.utils.bg_dataloader import DataLoaderX
+
 from .datamodules import _datamodules
 
 

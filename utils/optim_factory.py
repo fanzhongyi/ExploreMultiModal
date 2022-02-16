@@ -26,6 +26,7 @@ def get_parameter_groups(
         lr_mult_fusion,
         weight_decay=1e-5,
         skip_list=(),
+        logger=None,
 ):
 
     fusion_layer = model.config.model.fusion_layer
@@ -83,11 +84,12 @@ def get_parameter_groups(
 
         parameter_group_vars[group_name]["params"].append(param)
         parameter_group_names[group_name]["params"].append(name)
-    print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
+    logger.info(
+        f"\nParam groups = {json.dumps(parameter_group_names, indent=2)}")
     return list(parameter_group_vars.values())
 
 
-def create_optimizer(cfg, model, skip_list=None):
+def create_optimizer(cfg, model, skip_list=None, logger=None):
 
     opt_lower = cfg.opt.name.lower()
     weight_decay = cfg.weight_decay
@@ -95,12 +97,15 @@ def create_optimizer(cfg, model, skip_list=None):
     skip = skip_list or {}
     if hasattr(model, 'no_weight_decay'):
         skip = model.no_weight_decay()
-    parameters = get_parameter_groups(model,
-                                      base_lr=cfg.base_lr,
-                                      lr_mult_head=cfg.lr_mult_head,
-                                      lr_mult_fusion=cfg.lr_mult_fusion,
-                                      weight_decay=weight_decay,
-                                      skip_list=skip)
+    parameters = get_parameter_groups(
+        model,
+        base_lr=cfg.base_lr,
+        lr_mult_head=cfg.lr_mult_head,
+        lr_mult_fusion=cfg.lr_mult_fusion,
+        weight_decay=weight_decay,
+        skip_list=skip,
+        logger=logger,
+    )
     weight_decay = 0.
 
     if 'fused' in opt_lower:
@@ -111,7 +116,7 @@ def create_optimizer(cfg, model, skip_list=None):
     opt_args['eps'] = cfg.opt.eps
     opt_args['betas'] = cfg.opt.betas
 
-    print("optimizer settings:", opt_args)
+    logger.info(f"\noptimizer settings: {opt_args}")
 
     opt_split = opt_lower.split('_')
     opt_lower = opt_split[-1]

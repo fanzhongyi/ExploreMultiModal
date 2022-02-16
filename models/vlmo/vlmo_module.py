@@ -7,7 +7,7 @@ import torch.nn as nn
 from timm.utils import ModelEmaV2 as ModelEma
 
 from . import objectives
-from .heads import ITCHead, ITMHead, MLMHead, MPPHead
+from .heads import ITCHead, ITMHead, MIMHead, MLMHead, MPPHead
 from .vlmo import VLMO, LayerNorm
 
 
@@ -67,10 +67,15 @@ class VlmoModule(nn.Module):
 
         if 'mim' in self.loss_names:
             self.d_vae = objectives.create_d_vae(
-                weight_path=config.discrete_vae_weight_path,
-                d_vae_type=config.discrete_vae_type,
-                device=None,
-                image_size=config.second_input_size)
+                weight_path=config.train.discrete_vae_weight_path,
+                d_vae_type=config.train.discrete_vae_type,
+                device="cpu",
+                image_size=model_cfg.img_size // 2)
+
+            for p in self.d_vae.parameters():
+                p.requires_grad = False
+
+            self.mim_head = MIMHead(hs, model_cfg.img_vocab_size)
 
         if 'mpp' in self.loss_names:
             self.mpp_head = MPPHead(self.transformer.bert_config)
@@ -134,7 +139,13 @@ class VlmoModule(nn.Module):
         if self.config.train.phase in ['pretrain_txt']:
             for b in self.transformer.blocks:
                 del b.mlp.vl
+                del b.gamma_1.vl
+                del b.gamma_2.vl
                 for p in b.attn.parameters():
+                    p.requires_grad = False
+                for p in b.norm1.parameters():
+                    p.requires_grad = False
+                for p in b.norm2.parameters():
                     p.requires_grad = False
 
         elif self.config.train.phase in ['pretrain_mum', 'finetune_vqa']:
@@ -256,13 +267,6 @@ class VlmoModule(nn.Module):
                 state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
                 del state_dict[k]
 
-            if 'norm1' in k:
-                state_dict[k.replace("norm1", "norm1.v")] = state_dict[k]
-                del state_dict[k]
-            if 'norm2' in k:
-                state_dict[k.replace("norm2", "norm2.v")] = state_dict[k]
-                del state_dict[k]
-
         matching = self.transformer.load_state_dict(state_dict, strict=False)
         self._adjust_downstream_params()
 
@@ -275,7 +279,7 @@ class VlmoModule(nn.Module):
         is_beit = True
         has_momentum_dict = False
         for k in list(state_dict.keys()):
-            if ".mlp.v_mlp" in k or '.mlp.l_mlp' in k or '.mlp.vl_mlp' in k:
+            if ".mlp.v" in k or '.mlp.l' in k or '.mlp.vl' in k:
                 is_beit = False
             if "transformer_m" in k:
                 has_momentum_dict = True
@@ -305,8 +309,8 @@ class VlmoModule(nn.Module):
         else:
             transformer = self.transformer
 
-        img, img_masks = None, None
-        txt_ids, txt_labels, txt_masks = None, None, None
+        img, img_attn_masks, bool_masked_pos = None, None, None
+        txt_ids, txt_labels, txt_attn_masks = None, None, None
 
         if 'img' in infer_mode:
             if f"image_{image_token_type_idx - 1}" in batch:
@@ -316,22 +320,27 @@ class VlmoModule(nn.Module):
 
             img = batch[imgkey]
             B = img.size(0)
-            def_mask = torch.ones([B, transformer.patch_embed.num_patches + 1],
-                                  dtype=torch.int64,
-                                  device=img.device)
-            img_masks = batch["image_mask"] if mask_img else def_mask
+            def_attn_masks = torch.ones(
+                [B, transformer.patch_embed.num_patches + 1],
+                dtype=torch.int64,
+                device=img.device)
+            # img_attn_masks = batch["image_mask"] if mask_img else def_attn_masks
+            img_attn_masks = def_attn_masks
+            bool_masked_pos = batch[
+                "image_bool_masked_pos"] if mask_img else None
 
         if 'txt' in infer_mode:
             do_mlm = "_mlm" if mask_txt else ""
             txt_ids = batch[f"text_ids{do_mlm}"]
             txt_labels = batch[f"text_labels{do_mlm}"] if mask_txt else None
-            txt_masks = batch["text_mask"]
+            txt_attn_masks = batch["text_mask"]
 
         co_feats, _ = transformer.forward_features(
             img=img,
             txt=txt_ids,
-            img_masks=img_masks,
-            txt_masks=txt_masks,
+            img_attn_masks=img_attn_masks,
+            txt_attn_masks=txt_attn_masks,
+            bool_masked_pos=bool_masked_pos,
             fusion_layer=None,
         )
 
@@ -349,10 +358,11 @@ class VlmoModule(nn.Module):
             "co_feats": co_feats,
             # "cls_feats": co_feats[:, 0],
             "cls_feats": cls_feats,
-            "img_masks": img_masks,
+            "img_masks": img_attn_masks,
+            "img_bool_masked_pos": bool_masked_pos,
             "txt_labels": txt_labels,
             "txt_ids": txt_ids,
-            "txt_masks": txt_masks,
+            "txt_masks": txt_attn_masks,
         }
         return ret
 
@@ -368,6 +378,10 @@ class VlmoModule(nn.Module):
         if "mlm" in self.loss_names:
             ret.update(objectives.compute_mlm(self, batch))
 
+        # Masked Image Modeling
+        if "mim" in self.loss_names:
+            ret.update(objectives.compute_mim(self, batch))
+
         # Image Text Contrast
         if "itc" in self.loss_names:
             ret.update(objectives.compute_itc(self, batch))
@@ -380,10 +394,6 @@ class VlmoModule(nn.Module):
         # Visual Question Answering
         if "vqa" in self.loss_names:
             ret.update(objectives.compute_vqa(self, batch))
-
-        # Masked Image Modeling
-        if "mim" in self.loss_names:
-            ret.update(objectives.compute_mim(self, batch))
 
         # Natural Language for Visual Reasoning 2
         if "nlvr2" in self.loss_names:

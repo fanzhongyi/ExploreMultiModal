@@ -86,7 +86,11 @@ def pretrain_txt(cfg: DictConfig, logger: Logger):
                 find_unused_parameters=True,
             )
             model_without_ddp = model.module
-        optimizer = create_optimizer(cfg.train, model_without_ddp)
+        optimizer = create_optimizer(
+            cfg.train,
+            model_without_ddp,
+            logger=logger,
+        )
         loss_scaler = NativeScaler()
 
     logger.info(

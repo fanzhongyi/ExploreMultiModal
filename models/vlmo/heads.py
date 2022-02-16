@@ -21,6 +21,17 @@ class MLMHead(nn.Module):
         return x
 
 
+class MIMHead(nn.Module):
+
+    def __init__(self, hidden_size, vocab_size, weight=None):
+        super().__init__()
+        self.fc = nn.Linear(hidden_size, vocab_size)
+
+    def forward(self, x):
+        x = self.fc(x)
+        return x
+
+
 class ITCHead(nn.Module):
 
     def __init__(self, hidden_size, out_size):

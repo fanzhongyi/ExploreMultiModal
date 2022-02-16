@@ -23,6 +23,12 @@ data:
   # Input image size
   img_size: ${model.img_size}
 
+  # Mask Image Nodeling needed
+  patch_size: ${model.patch_size}
+  num_mask_patches: 75
+  max_mask_patches_per_block: ~
+  min_mask_patches_per_block: 16
+
   # Tokenizer
   tokenizer: 'bert-base-uncased'
   # Do whole mask

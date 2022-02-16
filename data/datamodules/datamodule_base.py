@@ -2,8 +2,11 @@ import os
 
 import torch
 import torch.distributed as dist
-from data.randaugment import RandomAugment
+from data.utils.masking_generator import MaskingGenerator
+from data.utils.randaug import RandAugment
+from data.utils.transforms import RandomResizedCropAndInterpolationWithTwoPic
 from PIL import Image
+from timm.data.constants import IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
 from torchvision import transforms
 from transformers import (BertTokenizer, DataCollatorForLanguageModeling,
                           DataCollatorForWholeWordMask)
@@ -25,10 +28,12 @@ class BaseDataModule:
 
         if 'pretrain' in config.train.phase:
             train_transform = self.image_transforms.pretrain_transform
+            val_transform = self.image_transforms.pretrain_val_transform
         else:
             train_transform = self.image_transforms.train_transform
+            val_transform = self.image_transforms.val_transform
         self.train_transform = train_transform
-        self.val_transform = self.image_transforms.val_transform
+        self.val_transform = val_transform
         self.test_transform = self.val_transform
 
         collator = (DataCollatorForWholeWordMask
@@ -38,7 +43,14 @@ class BaseDataModule:
         self.mlm_collator = collator(tokenizer=self.tokenizer,
                                      mlm=True,
                                      mlm_probability=config.data.mlm_prob)
-        self.image_mask_generator = None
+
+        window_size = config.data.img_size // config.data.patch_size
+        self.image_mask_generator = MaskingGenerator(
+            window_size,
+            num_masking_patches=config.data.num_mask_patches,
+            max_num_patches=config.data.max_mask_patches_per_block,
+            min_num_patches=config.data.min_mask_patches_per_block,
+        )
 
     @property
     def dataset_cls(self):
@@ -136,45 +148,89 @@ class ImageTransforms:
 
     def __init__(self, config):
 
-        img_size = config.data.img_size
-        normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073),
-                                         (0.26862954, 0.26130258, 0.27577711))
+        self.img_size = config.data.img_size
+        self.second_img_size = config.data.img_size // 2
+        self.normalize = transforms.Normalize(IMAGENET_INCEPTION_MEAN,
+                                              IMAGENET_INCEPTION_STD)
+        self.config = config
 
-        self.pretrain_transform = transforms.Compose([
-            transforms.RandomResizedCrop(img_size,
+    @property
+    def pretrain_transform(self):
+        common_transform = transforms.Compose([
+            RandAugment(2, 9),
+            # transforms.RandomResizedCrop(self.img_size,
+            #                              scale=(0.9, 1.0),
+            #                              interpolation=Image.BICUBIC),
+            RandomResizedCropAndInterpolationWithTwoPic(
+                size=self.img_size,
+                second_size=self.second_img_size,
+            ),
+        ])
+
+        logit_laplace_eps = 0.1
+
+        if self.second_img_size is not None:
+            transform = transforms.Compose([
+                common_transform,
+                transforms.Lambda(lambda x: (transforms.ToTensor()(x[0]),
+                                             transforms.ToTensor()(x[1]))),
+                transforms.Lambda(lambda x: (self.normalize(x[0]), (
+                    1 - 2 * logit_laplace_eps) * x[1] + logit_laplace_eps)),
+            ])
+        else:
+            transform = transforms.Compose([
+                common_transform,
+                transforms.ToTensor(),
+                self.normalize,
+            ])
+
+        return transform
+
+    @property
+    def pretrain_val_transform(self):
+        if self.second_img_size is not None:
+            logit_laplace_eps = 0.1
+            common_transform = transforms.Compose([
+                transforms.Lambda(lambda x: (
+                    transforms.Resize((self.img_size, self.img_size),
+                                      interpolation=Image.BICUBIC)(x),
+                    transforms.Resize(
+                        (self.second_img_size, self.second_img_size),
+                        interpolation=Image.LANCZOS)(x),
+                ))
+            ])
+            transform = transforms.Compose([
+                common_transform,
+                transforms.Lambda(lambda x: (transforms.ToTensor()(x[0]),
+                                             transforms.ToTensor()(x[1]))),
+                transforms.Lambda(lambda x: (self.normalize(x[0]), (
+                    1 - 2 * logit_laplace_eps) * x[1] + logit_laplace_eps)),
+            ])
+        else:
+            transform = transforms.Compose([
+                transforms.Resize((self.img_size, self.img_size),
+                                  interpolation=Image.BICUBIC),
+                transforms.ToTensor(),
+                self.normalize,
+            ])
+        return transform
+
+    @property
+    def train_transform(self):
+        return transforms.Compose([
+            RandAugment(2, 9),
+            transforms.RandomResizedCrop(self.img_size,
                                          scale=(0.9, 1.0),
                                          interpolation=Image.BICUBIC),
-            # transforms.RandomHorizontalFlip(),
-            RandomAugment(2,
-                          7,
-                          isPIL=True,
-                          augs=[
-                              'Identity', 'AutoContrast', 'Equalize',
-                              'Brightness', 'Sharpness', 'ShearX', 'ShearY',
-                              'TranslateX', 'TranslateY', 'Rotate'
-                          ]),
             transforms.ToTensor(),
-            normalize,
+            self.normalize,
         ])
-        self.train_transform = transforms.Compose([
-            transforms.RandomResizedCrop(img_size,
-                                         scale=(0.9, 1.0),
-                                         interpolation=Image.BICUBIC),
-            # transforms.RandomHorizontalFlip(),
-            RandomAugment(2,
-                          7,
-                          isPIL=True,
-                          augs=[
-                              'Identity', 'AutoContrast', 'Equalize',
-                              'Brightness', 'Sharpness', 'ShearX', 'ShearY',
-                              'TranslateX', 'TranslateY', 'Rotate'
-                          ]),
-            transforms.ToTensor(),
-            normalize,
-        ])
-        self.val_transform = transforms.Compose([
-            transforms.Resize((img_size, img_size),
+
+    @property
+    def val_transform(self):
+        return transforms.Compose([
+            transforms.Resize((self.img_size, self.img_size),
                               interpolation=Image.BICUBIC),
             transforms.ToTensor(),
-            normalize,
+            self.normalize,
         ])
