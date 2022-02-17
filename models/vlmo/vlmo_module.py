@@ -76,6 +76,7 @@ class VlmoModule(nn.Module):
                 p.requires_grad = False
 
             self.mim_head = MIMHead(hs, model_cfg.img_vocab_size)
+            self.mim_head.apply(self.transformer._init_weights)
 
         if 'mpp' in self.loss_names:
             self.mpp_head = MPPHead(self.transformer.bert_config)
@@ -205,8 +206,6 @@ class VlmoModule(nn.Module):
                     new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
                     state_dict[pos_embed_key] = new_pos_embed
 
-                    print(pos_embed_key, orig_size, new_size)
-
         txt_pos_embed_key = 'transformer.txt_embeddings.position_embeddings.weight'
         txt_pos_id_key = 'transformer.txt_embeddings.position_ids'
 
@@ -255,9 +254,15 @@ class VlmoModule(nn.Module):
             if "mlp" in k:
                 state_dict[k.replace(".mlp", ".mlp.v")] = state_dict[k]
                 del state_dict[k]
+
             if 'cls_token' in k:
                 state_dict[k.replace("cls_token",
                                      "img_cls_token")] = state_dict[k]
+                del state_dict[k]
+
+            if 'mask_token' in k:
+                state_dict[k.replace("mask_token",
+                                     "img_mask_token")] = state_dict[k]
                 del state_dict[k]
 
             if 'gamma_1' in k:
@@ -266,6 +271,13 @@ class VlmoModule(nn.Module):
             if 'gamma_2' in k:
                 state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
                 del state_dict[k]
+
+            if 'lm_head' in k:
+                state_dict[k.replace("lm_head", "fc")] = state_dict[k]
+                del state_dict[k]
+
+        if 'mim' in self.loss_names:
+            self.mim_head.load_state_dict(state_dict, strict=False)
 
         matching = self.transformer.load_state_dict(state_dict, strict=False)
         self._adjust_downstream_params()

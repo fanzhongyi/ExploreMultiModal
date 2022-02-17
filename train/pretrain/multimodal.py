@@ -423,6 +423,9 @@ def evaluate(model: torch.nn.Module,
         if 'itm_mean_acc' in outputs.keys():
             metrics.update(itm_acc=dict(value=outputs['itm_mean_acc'].item(),
                                         n=outputs['itm_count']),)
+        if 'mim_mean_acc' in outputs.keys():
+            metrics.update(mim_acc=dict(value=outputs['mim_mean_acc'].item(),
+                                        n=outputs['mim_count']),)
         if 'itc_temp' in outputs.keys():
             metrics.update(itc_i2t_acc=dict(
                 value=outputs['itc_i2t_mean_acc'].item(),

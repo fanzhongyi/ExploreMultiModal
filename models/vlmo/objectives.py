@@ -262,7 +262,7 @@ def compute_vqa(model, batch):
         }
         ret.update(train_ret)
 
-        if model.config.train.kl_alpha > 0.:
+        if model.config.train.kl_alpha > 0. and model.training:
             infer_2 = model.infer(batch,
                                   infer_mode='img-txt',
                                   mask_txt=False,
@@ -374,7 +374,7 @@ def compute_mim(module, batch):
         infer = {"img_feats": img_feats}
 
     patch_x = infer["img_feats"][:, 1:]
-    masked_patch_x = patch_x[bool_masked_pos]
+    masked_patch_x = patch_x[bool_masked_pos].contiguous()
 
     mim_logits = module.mim_head(masked_patch_x)
 
@@ -390,7 +390,7 @@ def compute_mim(module, batch):
 
     ret = {
         "mim_task_loss": mim_loss,
-        "mim_logits": mim_loss,
+        "mim_logits": mim_logits,
         "mim_labels": mim_labels,
         "mim_mean_acc": mim_mean_acc,
         "mim_count": mim_count,
