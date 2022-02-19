@@ -34,6 +34,9 @@ min_lr : 5e-6
 lr_mult_head : 1
 lr_mult_fusion : 1
 
+# ITC
+global_reduce: false
+
 neg_queue: false
 queue_size: 65536
 

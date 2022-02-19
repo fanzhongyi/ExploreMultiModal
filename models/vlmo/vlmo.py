@@ -156,26 +156,31 @@ class Block(nn.Module):
                     drop=drop),
         })
         if init_values is not None and init_values > 0:
-            self.gamma_1 = nn.ParameterDict({
-                'v':
-                    nn.Parameter(init_values * torch.ones((dim)),
-                                 requires_grad=True),
-                'l':
-                    nn.Parameter(torch.ones((dim)), requires_grad=True),
-                'vl':
-                    nn.Parameter(init_values * torch.ones((dim)),
-                                 requires_grad=True)
-            })
-            self.gamma_2 = nn.ParameterDict({
-                'v':
-                    nn.Parameter(init_values * torch.ones((dim)),
-                                 requires_grad=True),
-                'l':
-                    nn.Parameter(torch.ones((dim)), requires_grad=True),
-                'vl':
-                    nn.Parameter(init_values * torch.ones((dim)),
-                                 requires_grad=True)
-            })
+            self.gamma_1 = nn.Parameter(init_values * torch.ones((dim)),
+                                        requires_grad=True)
+            self.gamma_2 = nn.Parameter(init_values * torch.ones((dim)),
+                                        requires_grad=True)
+
+            # self.gamma_1 = nn.ParameterDict({
+            #     'v':
+            #         nn.Parameter(init_values * torch.ones((dim)),
+            #                      requires_grad=True),
+            #     'l':
+            #         nn.Parameter(torch.ones((dim)), requires_grad=True),
+            #     'vl':
+            #         nn.Parameter(init_values * torch.ones((dim)),
+            #                      requires_grad=True)
+            # })
+            # self.gamma_2 = nn.ParameterDict({
+            #     'v':
+            #         nn.Parameter(init_values * torch.ones((dim)),
+            #                      requires_grad=True),
+            #     'l':
+            #         nn.Parameter(torch.ones((dim)), requires_grad=True),
+            #     'vl':
+            #         nn.Parameter(init_values * torch.ones((dim)),
+            #                      requires_grad=True)
+            # })
         else:
             self.gamma_1, self.gamma_2 = None, None
 
@@ -186,9 +191,9 @@ class Block(nn.Module):
             x = x + self.drop_path(_x)
             x = x + self.drop_path(self.mlp[route](self.norm2(x)))
         else:
-            x = x + self.drop_path(self.gamma_1[route] * _x)
+            x = x + self.drop_path(self.gamma_1 * _x)
             x = x + self.drop_path(
-                self.gamma_2[route] * self.mlp[route](self.norm2(x)))
+                self.gamma_2 * self.mlp[route](self.norm2(x)))
         return x, attn
 
 

@@ -1,3 +1,5 @@
+import random
+
 import torch
 from torch.utils.data import Dataset, random_split
 
@@ -38,6 +40,9 @@ class BaseNLPDataset(Dataset):
         return len(self.text_data)
 
     def get_text(self, raw_index):
+
+        return self.get_text_bucket(raw_index)
+
         text = self.text_data[raw_index]['text']
         encoding = self.tokenizer(
             text,
@@ -50,6 +55,49 @@ class BaseNLPDataset(Dataset):
         return {
             "text_ids": encoding.input_ids.squeeze(0),
             "text_mask": encoding.attention_mask.squeeze(0),
+            "raw_index": raw_index,
+        }
+
+    def get_text_bucket(self, raw_index):
+        text = self.text_data[raw_index]['text']
+        init_encoding = self.tokenizer(
+            text,
+            padding=False,
+            truncation=True,
+            max_length=self.max_text_len,
+        )
+
+        total_text = [text]
+        total_len = len(init_encoding.input_ids)
+
+        while total_len < self.max_text_len:
+            cur_index = random.randint(0, len(self.text_data) - 1)
+            cur_text = self.text_data[cur_index]['text']
+            cur_encoding = self.tokenizer(
+                cur_text,
+                padding=False,
+                truncation=True,
+                max_length=self.max_text_len,
+            )
+            cur_len = len(cur_encoding.input_ids) - 1
+            if total_len + cur_len > self.max_text_len:
+                break
+            total_text.append(cur_text)
+            total_len = total_len + cur_len
+
+        total_text_str = ' [SEP] '.join(total_text)
+
+        total_encoding = self.tokenizer(
+            total_text_str,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_text_len,
+            return_tensors='pt',
+        )
+
+        return {
+            "text_ids": total_encoding.input_ids.squeeze(0),
+            "text_mask": total_encoding.attention_mask.squeeze(0),
             "raw_index": raw_index,
         }
 

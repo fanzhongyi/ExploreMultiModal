@@ -111,17 +111,6 @@ class RandomResizedCropAndInterpolationWithTwoPic(torch.nn.Module):
         return i, j, h, w
 
     def forward(self, img):
-        """
-        Args:
-            img (PIL Image or Tensor): Image to be cropped and resized.
-
-        Returns:
-            PIL Image or Tensor: Randomly cropped and resized image.
-        """
-        i, j, h, w = self.get_params(img, self.scale, self.ratio)
-        return F.resized_crop(img, i, j, h, w, self.size, self.interpolation)
-
-    def __call__(self, img):
         i, j, h, w = self.get_params(img, self.scale, self.ratio)
 
         interpolation = self.interpolation

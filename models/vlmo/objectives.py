@@ -3,6 +3,7 @@ import json
 import os
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from einops import rearrange
 from models.modeling_discrete_vae import Dalle_VAE, DiscreteVAE
@@ -109,9 +110,21 @@ def compute_itc(model, batch):
                 sim_t2i_m, dim=1) + (1 - alpha) * sim_targets
         '''
 
+    bs = i_feat.size(0)
+    sim_targets = torch.arange(bs, device=i_feat.device)
+
     if model.transformer_m is None and model.img_queue is None:
-        sim_i2t = i_feat @ t_feat.t() * temp
-        sim_t2i = sim_i2t.t()
+
+        if model.config.train.global_reduce:
+            i_feats = GatherLayer.apply(i_feat, None, dist.get_rank())
+            t_feats = GatherLayer.apply(t_feat, None, dist.get_rank())
+            i_feats = torch.roll(i_feats, -bs * dist.get_rank(), 0)
+            t_feats = torch.roll(t_feats, -bs * dist.get_rank(), 0)
+            sim_i2t = i_feat @ t_feats.t() * temp
+            sim_t2i = t_feat @ i_feats.t() * temp
+        else:
+            sim_i2t = i_feat @ t_feat.t() * temp
+            sim_t2i = sim_i2t.t()
 
     elif model.img_queue is None:
         sim_i2t = i_feat @ t_feat_m.t() * temp
@@ -128,13 +141,9 @@ def compute_itc(model, batch):
 
         dequeue_and_enqueue(model, i_feat_m, t_feat_m)
 
-    sim_targets = torch.arange(sim_i2t.size(0), device=sim_i2t.device)
     i2t_loss = F.cross_entropy(sim_i2t, sim_targets)
     t2i_loss = F.cross_entropy(sim_t2i, sim_targets)
-
     itc_loss = (i2t_loss + t2i_loss) / 2
-
-    bs = sim_i2t.size(0)
 
     itc_i2t_mean_acc, itc_i2t_count = compute_accuracy(sim_i2t[:, :bs],
                                                        sim_targets)
@@ -293,13 +302,49 @@ def compute_vqa(model, batch):
     return ret
 
 
+class GatherLayer(torch.autograd.Function):
+    """
+        :class:`GatherLayer` is a module wrapper that realizes backward op in all_gather
+        Usage:
+        feat_global = torch.cat(all_gather(feat, group), 0)
+        # equals to
+        feat_global = GatherLayer.apply(feat, group, rank)
+    """
+
+    @staticmethod
+    def forward(ctx, tensor, group, rank):
+        ctx.batch_size = tensor.shape[0]
+        ctx.group = group
+        ctx.rank = rank
+
+        gathered_tensor = [
+            torch.zeros_like(tensor) for _ in range(dist.get_world_size(group))
+        ]
+
+        dist.all_gather(gathered_tensor, tensor, group=group)
+        gathered_tensor = torch.cat(gathered_tensor, 0)
+
+        return gathered_tensor
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_input = grad_output.clone()
+        dist.all_reduce(grad_input,
+                        op=dist.ReduceOp.SUM,
+                        async_op=False,
+                        group=ctx.group)
+
+        idx_from = ctx.rank * ctx.batch_size
+        idx_to = (ctx.rank + 1) * ctx.batch_size
+        return grad_input[idx_from:idx_to], None, None
+
+
 @torch.no_grad()
 def concat_all_gather(tensor):
     tensors_gather = [
-        torch.ones_like(tensor)
-        for _ in range(torch.distributed.get_world_size())
+        torch.ones_like(tensor) for _ in range(dist.get_world_size())
     ]
-    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
+    dist.all_gather(tensors_gather, tensor, async_op=False)
     return torch.cat(tensors_gather, dim=0)
 
 

@@ -140,8 +140,10 @@ class VlmoModule(nn.Module):
         if self.config.train.phase in ['pretrain_txt']:
             for b in self.transformer.blocks:
                 del b.mlp.vl
-                del b.gamma_1.vl
-                del b.gamma_2.vl
+                # del b.gamma_1.vl
+                # del b.gamma_2.vl
+                b.gamma_1.requires_grad = False
+                b.gamma_2.requires_grad = False
                 for p in b.attn.parameters():
                     p.requires_grad = False
                 for p in b.norm1.parameters():
@@ -234,14 +236,14 @@ class VlmoModule(nn.Module):
                 state_dict[k.replace(".mlp.vl_mlp", ".mlp.vl")] = state_dict[k]
                 del state_dict[k]
 
-            if k.endswith('gamma_1'):
-                state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
-                state_dict[k.replace("gamma_1", "gamma_1.l")] = state_dict[k]
-                state_dict[k.replace("gamma_1", "gamma_1.vl")] = state_dict[k]
-            if k.endswith('gamma_2'):
-                state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
-                state_dict[k.replace("gamma_2", "gamma_2.l")] = state_dict[k]
-                state_dict[k.replace("gamma_2", "gamma_2.vl")] = state_dict[k]
+            # if k.endswith('gamma_1'):
+            #     state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
+            #     state_dict[k.replace("gamma_1", "gamma_1.l")] = state_dict[k]
+            #     state_dict[k.replace("gamma_1", "gamma_1.vl")] = state_dict[k]
+            # if k.endswith('gamma_2'):
+            #     state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
+            #     state_dict[k.replace("gamma_2", "gamma_2.l")] = state_dict[k]
+            #     state_dict[k.replace("gamma_2", "gamma_2.vl")] = state_dict[k]
 
         matching = self.load_state_dict(state_dict, strict=False)
         self._adjust_downstream_params()
@@ -265,12 +267,12 @@ class VlmoModule(nn.Module):
                                      "img_mask_token")] = state_dict[k]
                 del state_dict[k]
 
-            if 'gamma_1' in k:
-                state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
-                del state_dict[k]
-            if 'gamma_2' in k:
-                state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
-                del state_dict[k]
+            # if 'gamma_1' in k:
+            #     state_dict[k.replace("gamma_1", "gamma_1.v")] = state_dict[k]
+            #     del state_dict[k]
+            # if 'gamma_2' in k:
+            #     state_dict[k.replace("gamma_2", "gamma_2.v")] = state_dict[k]
+            #     del state_dict[k]
 
             if 'lm_head' in k:
                 state_dict[k.replace("lm_head", "fc")] = state_dict[k]
