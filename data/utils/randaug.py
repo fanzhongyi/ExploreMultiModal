@@ -182,15 +182,16 @@ def augment_list():  # 16 oeprations and their ranges
 
     # https://github.com/tensorflow/tpu/blob/8462d083dd89489a79e3200bcc8d4063bf362186/models/official/efficientnet/autoaugment.py#L505
     l = [
+        (Identity, 0., 1.0),
         (AutoContrast, 0, 1),
         (Equalize, 0, 1),
         # (Invert, 0, 1),
         (Rotate, 0, 30),
-        (Posterize, 0, 4),
-        (Solarize, 0, 256),
-        (SolarizeAdd, 0, 110),
-        (Color, 0.1, 1.9),
-        (Contrast, 0.1, 1.9),
+        # (Posterize, 0, 4),
+        # (Solarize, 0, 256),
+        # (SolarizeAdd, 0, 110),
+        # (Color, 0.1, 1.9),
+        # (Contrast, 0.1, 1.9),
         (Brightness, 0.1, 1.9),
         (Sharpness, 0.1, 1.9),
         (ShearX, 0.0, 0.3),

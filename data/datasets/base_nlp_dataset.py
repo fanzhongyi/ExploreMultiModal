@@ -71,7 +71,8 @@ class BaseNLPDataset(Dataset):
         total_len = len(init_encoding.input_ids)
 
         while total_len < self.max_text_len:
-            cur_index = random.randint(0, len(self.text_data) - 1)
+            # cur_index = random.randint(0, len(self.text_data) - 1)
+            cur_index = (raw_index + 1) % len(self.text_data)
             cur_text = self.text_data[cur_index]['text']
             cur_encoding = self.tokenizer(
                 cur_text,

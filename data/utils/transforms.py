@@ -40,7 +40,7 @@ class RandomResizedCropAndInterpolationWithTwoPic(torch.nn.Module):
         second_size,
         scale=(0.08, 1.0),
         ratio=(3. / 4., 4. / 3.),
-        interpolation=F.InterpolationMode.BILINEAR,
+        interpolation=F.InterpolationMode.BICUBIC,
         second_interpolation=F.InterpolationMode.LANCZOS,
     ):
         super().__init__()

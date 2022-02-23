@@ -110,7 +110,7 @@ wandb:
   token: 30e859c562557e3cb316b5863156a37c09569611
   mode: offline
   project: vlmo
-  name: "${train.phase}-${tag}-${dist.slurm_job_id}"
+  name: "${tag}-${dist.slurm_job_id}"
   id: "${train.phase}-${tag}-${dist.slurm_job_id}"
   alert: false
 

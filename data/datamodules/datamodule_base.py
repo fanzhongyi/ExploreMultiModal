@@ -4,6 +4,7 @@ import torch
 import torch.distributed as dist
 from data.utils.masking_generator import MaskingGenerator
 from data.utils.randaug import RandAugment
+from data.utils.randaugment import RandomAugment
 from data.utils.transforms import RandomResizedCropAndInterpolationWithTwoPic
 from PIL import Image
 from timm.data.constants import IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
@@ -150,20 +151,32 @@ class ImageTransforms:
 
         self.img_size = config.data.img_size
         self.second_img_size = config.data.img_size // 2
-        self.normalize = transforms.Normalize(IMAGENET_INCEPTION_MEAN,
-                                              IMAGENET_INCEPTION_STD)
+        # self.normalize = transforms.Normalize(IMAGENET_INCEPTION_MEAN,
+        #                                       IMAGENET_INCEPTION_STD)
+        self.normalize = transforms.Normalize(
+            (0.48145466, 0.4578275, 0.40821073),
+            (0.26862954, 0.26130258, 0.27577711))
         self.config = config
 
     @property
     def pretrain_transform(self):
         common_transform = transforms.Compose([
-            RandAugment(2, 9),
+            # RandAugment(2, 21),
+            RandomAugment(2,
+                          7,
+                          isPIL=True,
+                          augs=[
+                              'Identity', 'AutoContrast', 'Equalize',
+                              'Brightness', 'Sharpness', 'ShearX', 'ShearY',
+                              'TranslateX', 'TranslateY', 'Rotate'
+                          ]),
             # transforms.RandomResizedCrop(self.img_size,
             #                              scale=(0.9, 1.0),
             #                              interpolation=Image.BICUBIC),
             RandomResizedCropAndInterpolationWithTwoPic(
                 size=self.img_size,
                 second_size=self.second_img_size,
+                scale=(0.9, 1.0),
             ),
         ])
 
@@ -218,7 +231,22 @@ class ImageTransforms:
     @property
     def train_transform(self):
         return transforms.Compose([
-            RandAugment(2, 9),
+            # RandAugment(2, 21),
+            RandomAugment(2,
+                          7,
+                          isPIL=True,
+                          augs=[
+                              'Identity',
+                              'AutoContrast',
+                              'Equalize',
+                              'Brightness',
+                              'Sharpness',
+                              'ShearX',
+                              'ShearY',
+                              'TranslateX',
+                              'TranslateY',
+                              'Rotate',
+                          ]),
             transforms.RandomResizedCrop(self.img_size,
                                          scale=(0.9, 1.0),
                                          interpolation=Image.BICUBIC),
@@ -230,6 +258,54 @@ class ImageTransforms:
     def val_transform(self):
         return transforms.Compose([
             transforms.Resize((self.img_size, self.img_size),
+                              interpolation=Image.BICUBIC),
+            transforms.ToTensor(),
+            self.normalize,
+        ])
+
+
+# NOTE: Only test vqa perfermance, will be removed later...
+class ImageTransformsBack:
+
+    def __init__(self, config):
+
+        img_size = config.data.img_size
+        self.normalize = transforms.Normalize(
+            (0.48145466, 0.4578275, 0.40821073),
+            (0.26862954, 0.26130258, 0.27577711))
+
+        self.pretrain_transform = transforms.Compose([
+            transforms.RandomResizedCrop(img_size,
+                                         scale=(0.9, 1.0),
+                                         interpolation=Image.BICUBIC),
+            RandomAugment(2,
+                          7,
+                          isPIL=True,
+                          augs=[
+                              'Identity', 'AutoContrast', 'Equalize',
+                              'Brightness', 'Sharpness', 'ShearX', 'ShearY',
+                              'TranslateX', 'TranslateY', 'Rotate'
+                          ]),
+            transforms.ToTensor(),
+            self.normalize,
+        ])
+        self.train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(img_size,
+                                         scale=(0.9, 1.0),
+                                         interpolation=Image.BICUBIC),
+            RandomAugment(2,
+                          7,
+                          isPIL=True,
+                          augs=[
+                              'Identity', 'AutoContrast', 'Equalize',
+                              'Brightness', 'Sharpness', 'ShearX', 'ShearY',
+                              'TranslateX', 'TranslateY', 'Rotate'
+                          ]),
+            transforms.ToTensor(),
+            self.normalize,
+        ])
+        self.val_transform = transforms.Compose([
+            transforms.Resize((img_size, img_size),
                               interpolation=Image.BICUBIC),
             transforms.ToTensor(),
             self.normalize,
