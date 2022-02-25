@@ -42,7 +42,7 @@ auto_resume : true
 # resume checkpoint filepath or url
 resume: ''
 # Gradient accumulation steps
-accumulation_steps : 0
+accumulation_steps : 1
 # Frequency to save checkpoint
 save_freq : 1
 # Frequency to logging info

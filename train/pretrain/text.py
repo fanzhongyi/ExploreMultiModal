@@ -257,6 +257,8 @@ def train_one_epoch(model: torch.nn.Module,
     else:
         optimizer.zero_grad()
 
+    grad_acc_steps = cfg.train.accumulation_steps
+
     for step, batch in enumerate(
             metric_logger.log_every(data_loader, print_freq, logger, header)):
 
@@ -301,6 +303,9 @@ def train_one_epoch(model: torch.nn.Module,
                 for k, v in outputs.items()
                 if "task_loss" in k and math.isfinite(v)
             ])
+
+        total_loss4backward = total_loss4backward / grad_acc_steps
+
         if loss_scaler is None:
             model.backward(total_loss4backward)
             model.step()
@@ -310,11 +315,14 @@ def train_one_epoch(model: torch.nn.Module,
             # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(
                 optimizer, 'is_second_order') and optimizer.is_second_order
-            grad_norm = loss_scaler(total_loss4backward,
-                                    optimizer,
-                                    clip_grad=max_norm,
-                                    parameters=model.parameters(),
-                                    create_graph=is_second_order)
+            grad_norm = loss_scaler(
+                total_loss4backward,
+                optimizer,
+                clip_grad=max_norm,
+                parameters=model.parameters(),
+                create_graph=is_second_order,
+                update_grad=(step + 1) % grad_acc_steps == 0,
+            )
             optimizer.zero_grad()
             loss_scale_value = loss_scaler.state_dict()["scale"]
 
