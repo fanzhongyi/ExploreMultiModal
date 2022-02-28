@@ -40,6 +40,7 @@ def get_parameter_groups(
         "itm_head",
         "mim_head",
         "vqa_classifier",
+        "vqa_last",
         "nlvr2_classifier",
         "snli_classifier",
     ]

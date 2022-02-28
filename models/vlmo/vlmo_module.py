@@ -7,7 +7,7 @@ import torch.nn as nn
 from timm.utils import ModelEmaV2 as ModelEma
 
 from . import objectives
-from .heads import ITCHead, ITMHead, MIMHead, MLMHead, MPPHead
+from .heads import ISDAHead, ITCHead, ITMHead, MIMHead, MLMHead, MPPHead
 from .vlmo import VLMO, LayerNorm
 
 
@@ -93,6 +93,12 @@ class VlmoModule(nn.Module):
                 nn.Linear(hs * 2, vs),
             )
             self.vqa_classifier.apply(self.transformer._init_weights)
+            self.vqa_last = None
+
+            if config.train.isda_lambda > 0.:
+                self.vqa_last = self.vqa_classifier[-1]
+                self.vqa_classifier = self.vqa_classifier[:-1]
+                self.isda_head = ISDAHead(hidden_size=hs * 2, class_num=vs)
 
         if 'nlvr2' in self.loss_names:
             self.nlvr2_classifier = nn.Sequential(
@@ -142,14 +148,15 @@ class VlmoModule(nn.Module):
                 del b.mlp.vl
                 # del b.gamma_1.vl
                 # del b.gamma_2.vl
-                b.gamma_1.requires_grad = False
-                b.gamma_2.requires_grad = False
-                for p in b.attn.parameters():
-                    p.requires_grad = False
-                for p in b.norm1.parameters():
-                    p.requires_grad = False
-                for p in b.norm2.parameters():
-                    p.requires_grad = False
+                if self.config.train.fixed_attn:
+                    b.gamma_1.requires_grad = False
+                    b.gamma_2.requires_grad = False
+                    for p in b.attn.parameters():
+                        p.requires_grad = False
+                    for p in b.norm1.parameters():
+                        p.requires_grad = False
+                    for p in b.norm2.parameters():
+                        p.requires_grad = False
 
         elif self.config.train.phase in ['pretrain_mum', 'finetune_vqa']:
             for b in self.transformer.blocks[:self.transformer.fusion_layer]:

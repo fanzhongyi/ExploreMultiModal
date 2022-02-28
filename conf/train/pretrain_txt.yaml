@@ -19,6 +19,7 @@ datasets:
 
 start_epoch : 0
 epochs : 10
+cur_epoch: 0
 
 warmup_epochs : 3
 warmup_steps: 10000
@@ -35,8 +36,10 @@ lr_mult_fusion : 5
 
 flat_loss: false
 
+fixed_attn: true
+
 # Clip gradient norm
-clip_grad : 5.0
+clip_grad : 1.0
 # Auto resume from latest checkpoint
 auto_resume : true
 # resume checkpoint filepath or url

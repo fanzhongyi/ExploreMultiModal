@@ -152,6 +152,7 @@ def pretrain_mum(cfg: DictConfig, logger: Logger):
     for epoch in range(cfg.train.start_epoch, cfg.train.epochs):
 
         data_loader_train.sampler.set_epoch(epoch)
+        cfg.train.cur_epoch = epoch
 
         if wb_logger is not None:
             wb_logger.set_step(epoch * num_steps_per_epoch)
@@ -378,12 +379,15 @@ def train_one_epoch(model: torch.nn.Module,
         metric_logger.update(**metrics)
         metric_logger.update(**opts)
 
-        if wb_logger is not None and it % print_freq == 0 and it / print_freq > 3.:
+        if wb_logger is not None and it % print_freq == 0 and it / print_freq > 3. and (
+                it + 1) % grad_acc_steps == 0:
             for k in metrics.keys():
                 if isinstance(metrics[k], dict):
                     metrics[k] = metrics[k]['value']
-            wb_logger.log(head='train/metric', step=it, **metrics)
-            wb_logger.log(head='train/opt', step=it, **opts)
+            wb_logger.log(head='train/metric',
+                          step=it // grad_acc_steps,
+                          **metrics)
+            wb_logger.log(head='train/opt', step=it // grad_acc_steps, **opts)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

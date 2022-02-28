@@ -12,8 +12,12 @@ datasets:
 # R-Drop alpha
 kl_alpha: 0.
 
+# ISDA
+isda_lambda: 0
+
 start_epoch : 0
 epochs : 10
+cur_epoch: 0
 
 warmup_epochs : 3
 warmup_steps: 2500

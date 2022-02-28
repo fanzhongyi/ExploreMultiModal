@@ -251,11 +251,27 @@ def compute_vqa(model, batch):
                         mask_img=False)
     vqa_logits = model.vqa_classifier(infer["cls_feats"])
 
+    if model.vqa_last is not None:
+        vqa_last_feats = vqa_logits
+        vqa_logits = model.vqa_last(vqa_last_feats)
+
     ret = {"vqa_logits": vqa_logits, "vqa_count": vqa_logits.size(0)}
 
     vqa_targets = batch["vqa_targets"]
 
     if torch.sum(vqa_targets) > 0.0:
+
+        if model.vqa_last is not None and model.training:
+            cur_epoch = model.config.train.cur_epoch
+            total_epoch = model.config.train.epochs
+            vqa_logits = model.isda_head(
+                y=vqa_logits,
+                features=vqa_last_feats,
+                fc_weight=model.vqa_last.weight,
+                target=vqa_targets,
+                ratio=model.config.train.isda_lambda * cur_epoch / total_epoch,
+            )
+
         vqa_loss = (
             F.binary_cross_entropy_with_logits(vqa_logits, vqa_targets) *
             vqa_targets.shape[1])

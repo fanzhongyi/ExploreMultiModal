@@ -223,7 +223,8 @@ class VLMO(nn.Module):
         super().__init__()
 
         self.num_classes = num_classes
-        self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        # num_features for consistency with other models
+        self.num_features = self.embed_dim = embed_dim
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
 
         # for img embedding
@@ -467,7 +468,7 @@ class VLMO(nn.Module):
             torch.sin(out_h),
             torch.cos(out_h)
         ],
-                            dim=1)[None, :, :]
+            dim=1)[None, :, :]
         assert self.num_tokens == 1, 'Assuming one and only one token, [cls]'
         pe_token = torch.zeros([1, 1, self.embed_dim], dtype=torch.float32)
         self.pos_embed = nn.parameter.Parameter(
@@ -480,6 +481,7 @@ if __name__ == "__main__":
     from time import time
 
     from transformers import BertTokenizer, DataCollatorForWholeWordMask
+    from torch.utils.tensorboard import SummaryWriter
 
     txt = [
         'I like china',
@@ -504,7 +506,7 @@ if __name__ == "__main__":
     pprint(txt.input_ids.size())
     pprint(txt.input_ids)
     pprint(txt.attention_mask)
-    exit(0)
+    # exit(0)
 
     mask_engine = DataCollatorForWholeWordMask(tokenizer=tokenizer,
                                                mlm=True,
@@ -520,21 +522,30 @@ if __name__ == "__main__":
         in_chans=3,
         num_classes=1000,
         embed_dim=384,
-        depth=12,
-        num_heads=6,
+        depth=6,
+        num_heads=4,
         mlp_ratio=4.0,
         qkv_bias=True,
         qk_scale=None,
-        drop_rate=0.0,
-        attn_drop_rate=0.0,
-        drop_path_rate=0.0,
-        norm_layer=None,
+        drop_rate=0.1,
+        attn_drop_rate=0.1,
+        drop_path_rate=0.1,
+        norm_layer=partial(LayerNorm,
+                           eps=1e-12,
+                           export=True),
+        init_values=0.1,
         vocab_size=30000,
         max_text_len=27,
-        fusion_layer=3,
+        fusion_layer=2,
     )
     n_params = sum(p.numel() for p in vlmo.parameters() if p.requires_grad)
     print(f"number of params: {n_params / 1e6} M")
+
+    with SummaryWriter(comment='vlmo') as w:
+        w.add_graph(vlmo, (img, txt['input_ids'],
+                    torch.ones([3, 197], dtype=torch.int), txt['attention_mask'],),)
+
+    exit(0)
 
     img_feature = vlmo(
         img=img,

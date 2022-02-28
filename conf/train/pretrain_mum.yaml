@@ -20,6 +20,7 @@ datasets:
 
 start_epoch : 0
 epochs : 10
+cur_epoch: 0
 
 warmup_epochs : 3
 warmup_steps: 2500

@@ -151,6 +151,7 @@ def pretrain_txt(cfg: DictConfig, logger: Logger):
     for epoch in range(cfg.train.start_epoch, cfg.train.epochs):
 
         data_loader_train.sampler.set_epoch(epoch)
+        cfg.train.cur_epoch = epoch
 
         if wb_logger is not None:
             wb_logger.set_step(epoch * num_steps_per_epoch)
