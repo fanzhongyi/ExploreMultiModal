@@ -86,8 +86,8 @@ def compute_itc(model, batch):
     img_infer = model.infer(batch, infer_mode='img_only')
     txt_infer = model.infer(batch, infer_mode='txt_only')
 
-    i_feat = model.itc_head(img_infer['co_feats'][:, 0])
-    t_feat = model.itc_head(txt_infer['co_feats'][:, 0])
+    i_feat = model.itc_head(img_infer['co_feats'][:, 0], route='v')
+    t_feat = model.itc_head(txt_infer['co_feats'][:, 0], route='l')
 
     if model.transformer_m is not None:
         model.transformer_m.eval()
@@ -101,8 +101,8 @@ def compute_itc(model, batch):
                                       infer_mode='txt_only',
                                       momentum_mode=True)
 
-            i_feat_m = model.itc_head(img_infer_m['co_feats'][:, 0])
-            t_feat_m = model.itc_head(txt_infer_m['co_feats'][:, 0])
+            i_feat_m = model.itc_head(img_infer_m['co_feats'][:, 0], route='v')
+            t_feat_m = model.itc_head(txt_infer_m['co_feats'][:, 0], route='l')
         '''
             sim_i2t_targets = alpha * F.softmax(
                 sim_i2t_m, dim=1) + (1 - alpha) * sim_targets

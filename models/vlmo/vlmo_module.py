@@ -146,8 +146,6 @@ class VlmoModule(nn.Module):
         if self.config.train.phase in ['pretrain_txt']:
             for b in self.transformer.blocks:
                 del b.mlp.vl
-                # del b.gamma_1.vl
-                # del b.gamma_2.vl
                 if self.config.train.fixed_attn:
                     b.gamma_1.requires_grad = False
                     b.gamma_2.requires_grad = False
@@ -157,6 +155,8 @@ class VlmoModule(nn.Module):
                         p.requires_grad = False
                     for p in b.norm2.parameters():
                         p.requires_grad = False
+            for p in self.transformer.norm.parameters():
+                p.requires_grad = False
 
         elif self.config.train.phase in ['pretrain_mum', 'finetune_vqa']:
             for b in self.transformer.blocks[:self.transformer.fusion_layer]:
@@ -212,7 +212,8 @@ class VlmoModule(nn.Module):
                         align_corners=False,
                     )
                     pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
-                    new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
+                    new_pos_embed = torch.cat(
+                        (extra_tokens, pos_tokens), dim=1)
                     state_dict[pos_embed_key] = new_pos_embed
 
         txt_pos_embed_key = 'transformer.txt_embeddings.position_embeddings.weight'

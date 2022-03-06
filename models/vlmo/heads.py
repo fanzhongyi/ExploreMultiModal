@@ -116,10 +116,13 @@ class ITCHead(nn.Module):
 
     def __init__(self, hidden_size, out_size):
         super().__init__()
-        self.dense = nn.Linear(hidden_size, out_size)
+        self.dense = nn.ModuleDict({
+            'v': nn.Linear(hidden_size, out_size),
+            'l': nn.Linear(hidden_size, out_size)
+        })
 
-    def forward(self, hidden_states):
-        hidden_states = self.dense(hidden_states)
+    def forward(self, hidden_states, route=None):
+        hidden_states = self.dense[route](hidden_states)
         hidden_states = nn.functional.normalize(hidden_states, dim=-1)
         return hidden_states
 
