@@ -50,7 +50,8 @@ def compute_mlm(model, batch):
     mlm_labels = infer["txt_labels"]
 
     mask = (mlm_labels != -100).unsqueeze(-1).expand_as(txt_feats)
-    masked_txt_feats = txt_feats[mask].contiguous().view(-1, txt_feats.size(-1))
+    masked_txt_feats = txt_feats[mask].contiguous(
+    ).view(-1, txt_feats.size(-1))
 
     mlm_logits = model.mlm_head(masked_txt_feats)
     mlm_labels = mlm_labels[mlm_labels != -100]
@@ -86,64 +87,92 @@ def compute_itc(model, batch):
     img_infer = model.infer(batch, infer_mode='img_only')
     txt_infer = model.infer(batch, infer_mode='txt_only')
 
-    i_feat = model.itc_head(img_infer['co_feats'][:, 0], route='v')
-    t_feat = model.itc_head(txt_infer['co_feats'][:, 0], route='l')
-
-    if model.transformer_m is not None:
-        model.transformer_m.eval()
-        with torch.no_grad():
-            model.transformer_m.update(model.transformer)
-
-            img_infer_m = model.infer(batch,
-                                      infer_mode='img_only',
-                                      momentum_mode=True)
-            txt_infer_m = model.infer(batch,
-                                      infer_mode='txt_only',
-                                      momentum_mode=True)
-
-            i_feat_m = model.itc_head(img_infer_m['co_feats'][:, 0], route='v')
-            t_feat_m = model.itc_head(txt_infer_m['co_feats'][:, 0], route='l')
-        '''
-            sim_i2t_targets = alpha * F.softmax(
-                sim_i2t_m, dim=1) + (1 - alpha) * sim_targets
-            sim_t2i_targets = alpha * F.softmax(
-                sim_t2i_m, dim=1) + (1 - alpha) * sim_targets
-        '''
+    i_feat = model.itc_head(img_infer['co_feats'][:, 0], 'v')
+    t_feat = model.itc_head(txt_infer['co_feats'][:, 0], 'l')
 
     bs = i_feat.size(0)
     sim_targets = torch.arange(bs, device=i_feat.device)
 
-    if model.transformer_m is None and model.img_queue is None:
+    sim_i2t, sim_t2i, sim_i2i, sim_t2t = None, None, None, None
+    i_feat_l_m, t_feat_l_m = None, None
 
-        if model.config.train.global_reduce:
-            i_feats = GatherLayer.apply(i_feat, None, dist.get_rank())
-            t_feats = GatherLayer.apply(t_feat, None, dist.get_rank())
-            i_feats = torch.roll(i_feats, -bs * dist.get_rank(), 0)
-            t_feats = torch.roll(t_feats, -bs * dist.get_rank(), 0)
+    if model.config.train.global_reduce:
+        # Global Gradient Preserving Gather
+
+        i_feats = GatherLayer.apply(i_feat, None, dist.get_rank())
+        t_feats = GatherLayer.apply(t_feat, None, dist.get_rank())
+        i_feats = torch.roll(i_feats, -bs * dist.get_rank(), 0)
+        t_feats = torch.roll(t_feats, -bs * dist.get_rank(), 0)
+
+        sim_i2t = i_feat @ t_feats.t() * temp
+        sim_t2i = t_feat @ i_feats.t() * temp
+
+    elif model.transformer_m is not None:
+        # Momentum Backbone
+        # BUG:...
+
+        # model.transformer_m.eval()
+        # model.itc_head_m.eval()
+        with torch.no_grad():
+            model.transformer_m.update(model.transformer)
+            model.itc_head_m.update(model.itc_head)
+
+            batch_aug = {k: v for k, v in batch.items() if 'image' not in k}
+            batch_aug['image'] = batch['image_aug']
+
+            img_infer_m = model.infer(batch_aug,
+                                      infer_mode='img_only',
+                                      momentum_mode=True)
+            txt_infer_m = model.infer(batch_aug,
+                                      infer_mode='txt_only',
+                                      momentum_mode=True)
+
+            itc_head_m = model.itc_head_m.module
+
+            i_feat_m = itc_head_m(img_infer_m['co_feats'][:, 0], 'v')
+            t_feat_m = itc_head_m(txt_infer_m['co_feats'][:, 0], 'l')
+
+            i_feat_l_m = itc_head_m(img_infer_m['co_feats'][:, 1:], 'v')
+            i_feat_l_m = patch_pooling(i_feat_l_m)
+            t_feat_l_m = itc_head_m(txt_infer_m['co_feats'][:, 1:], 'l')
+
+        if model.img_queue is None:
+            # Momentum Backbone without Negative Queue
+
+            i_feats, t_feats = i_feat_m, t_feat_m
+
             sim_i2t = i_feat @ t_feats.t() * temp
             sim_t2i = t_feat @ i_feats.t() * temp
-        else:
-            sim_i2t = i_feat @ t_feat.t() * temp
-            sim_t2i = sim_i2t.t()
 
-    elif model.img_queue is None:
-        sim_i2t = i_feat @ t_feat_m.t() * temp
-        sim_t2i = t_feat @ i_feat_m.t() * temp
+            sim_i2i = i_feat @ i_feats.t() * temp
+            sim_t2t = t_feat @ t_feats.t() * temp
+
+        else:
+            # Momentum Backbone with Negative Queue
+
+            i_feats = torch.cat(
+                [i_feat_m.t(), model.img_queue.clone().detach()], dim=1)
+            t_feats = torch.cat(
+                [t_feat_m.t(), model.txt_queue.clone().detach()], dim=1)
+
+            dequeue_and_enqueue(model, i_feat_m, t_feat_m)
+
+            sim_i2t = i_feat @ t_feats * temp
+            sim_t2i = t_feat @ i_feats * temp
+
+            sim_i2i = i_feat @ i_feats * temp
+            sim_t2t = t_feat @ t_feats * temp
 
     else:
-        i_feat_all = torch.cat(
-            [i_feat_m.t(), model.img_queue.clone().detach()], dim=1)
-        t_feat_all = torch.cat(
-            [t_feat_m.t(), model.txt_queue.clone().detach()], dim=1)
+        # Naive ITC
 
-        sim_i2t = i_feat @ t_feat_all * temp
-        sim_t2i = t_feat @ i_feat_all * temp
-
-        dequeue_and_enqueue(model, i_feat_m, t_feat_m)
+        i_feats, t_feats = i_feat, t_feat
+        sim_i2t = i_feat @ t_feats.t() * temp
+        sim_t2i = sim_i2t.t()
 
     i2t_loss = F.cross_entropy(sim_i2t, sim_targets)
     t2i_loss = F.cross_entropy(sim_t2i, sim_targets)
-    itc_loss = (i2t_loss + t2i_loss) / 2
+    itc_task_loss = (i2t_loss + t2i_loss) / 2
 
     itc_i2t_mean_acc, itc_i2t_count = compute_accuracy(sim_i2t[:, :bs],
                                                        sim_targets)
@@ -151,7 +180,7 @@ def compute_itc(model, batch):
                                                        sim_targets)
 
     ret = {
-        'itc_task_loss': itc_loss,
+        'itc_task_loss': itc_task_loss,
         'i2t_Loss': i2t_loss,
         't2i_Loss': t2i_loss,
         'sim_i2t': sim_i2t,
@@ -162,6 +191,48 @@ def compute_itc(model, batch):
         'itc_t2i_mean_acc': itc_t2i_mean_acc,
         'itc_t2i_count': itc_t2i_count,
     }
+
+    if sim_i2i is not None and sim_t2t is not None:
+        # Inmodal Contrastive Loss
+
+        i2i_loss = F.cross_entropy(sim_i2i, sim_targets)
+        t2t_loss = F.cross_entropy(sim_t2t, sim_targets)
+        itc_task_loss = (i2t_loss + t2i_loss + i2i_loss + t2t_loss) / 4
+
+        i2i_mean_acc, i2i_count = compute_accuracy(sim_i2i[:, :bs],
+                                                   sim_targets)
+        t2t_mean_acc, t2t_count = compute_accuracy(sim_t2t[:, :bs],
+                                                   sim_targets)
+
+        inmodal_ret = {
+            'itc_task_loss': itc_task_loss,
+            'i2i_Loss': i2i_loss,
+            't2t_Loss': t2t_loss,
+            'i2i_mean_acc': i2i_mean_acc,
+            'i2i_count': i2i_count,
+            't2t_mean_acc': t2t_mean_acc,
+            't2t_count': t2t_count,
+        }
+
+        if i_feat_l_m is not None and t_feat_l_m is not None:
+            # Inmodal Local Contrastive Loss
+
+            i2i_l_loss = in_batch_g2l_loss(i_feat_l_m, i_feat, temp)
+            t2t_l_loss = in_batch_g2l_loss(
+                t_feat_l_m, t_feat, temp, txt_infer['txt_masks'][:, 1:])
+
+            itc_task_loss = (i2t_loss + t2i_loss + i2i_loss +
+                             t2t_loss + i2i_l_loss + t2t_l_loss) / 6
+
+            inmodal_l_ret = {
+                'itc_task_loss': itc_task_loss,
+                'i2i_l_Loss': i2i_l_loss,
+                't2t_l_Loss': t2t_l_loss,
+            }
+            inmodal_ret.update(inmodal_l_ret)
+
+        ret.update(inmodal_ret)
+
     return ret
 
 
@@ -227,7 +298,7 @@ def compute_itm(model, batch, sim_dict=None):
         torch.ones(1 * bs, dtype=torch.long, device=itm_logits.device),
         torch.zeros(2 * bs, dtype=torch.long, device=itm_logits.device)
     ],
-                           dim=0)
+        dim=0)
 
     itm_loss = F.cross_entropy(itm_logits, itm_labels)
 
@@ -392,6 +463,67 @@ def dequeue_and_enqueue(model, image_feat, text_feat):
     ptr = (ptr + batch_size) % model.q_size
 
     model.queue_ptr[0] = ptr
+
+
+def patch_pooling(x):
+    bs, length, dim = x.size()
+    b1 = int(length ** 0.5)
+    x = x.reshape(bs, b1, b1, dim)
+    x = x.permute(0, 3, 1, 2)
+    c1 = int(b1 ** 0.5)
+    x = F.avg_pool2d(x, c1, stride=c1)
+    x = x.permute(0, 2, 3, 1).reshape(bs, -1, dim)
+    return x
+
+
+def in_batch_g2l_loss(l, m, temp, attention_mask=None):
+    m = m.unsqueeze(1)
+    N, n_locals, dim = l.size()
+    l_n = l.reshape(-1, dim)  # (N * n_locals) * d
+    m_n = m.reshape(-1, dim)  # N * d
+
+    # Inner product for positive samples. Outer product for negative. We need to do it this way
+    # for the multiclass loss. For the outer product, we want a N x N x n_locals x 1 tensor.
+    u_p = torch.matmul(l, m.permute(0, 2, 1)).unsqueeze(
+        2) / temp  # N * n_locals * 1 * 1
+
+    # if l comes from text, then attention_mask is not None
+    if attention_mask is not None:
+        temp_mask = attention_mask.unsqueeze(2).unsqueeze(3)
+        u_p = (temp_mask * u_p) + (10000. * (1-temp_mask))
+
+    u_n = torch.mm(m_n, l_n.t()) / temp
+    u_n = u_n.reshape(N, 1, N, n_locals).permute(
+        0, 2, 3, 1)  # N x N x n_locals x 1
+
+    # We need to mask the diagonal part of the negative tensor.
+    mask = torch.eye(N)[:, :, None, None].to(l.device)  # N*N*1*1
+    n_mask = 1 - mask
+
+    # Masking is done by shifting the diagonal before exp.
+    # mask out "self" examples
+    u_n = (n_mask * u_n) - (10000. * (1 - n_mask))
+    # if l comes from test, we mask out the padding tokens
+    if attention_mask is not None:
+        temp_mask = attention_mask.unsqueeze(
+            0).unsqueeze(3).expand(N, -1, -1, -1)
+        u_n = (temp_mask * u_n) - (10000. * (1-temp_mask))
+
+    u_n = u_n.reshape(
+        N, N * n_locals, 1).unsqueeze(dim=1).expand(-1, n_locals, -1, -1)
+
+    # Since this is multiclass, we concat the positive along the class dimension before performing log softmax.
+    pred_lgt = torch.cat([u_p, u_n], dim=2)
+    pred_log = F.log_softmax(pred_lgt, dim=2)
+
+    # The positive score is the first element of the log softmax.
+    if attention_mask is not None:
+        loss = (torch.sum(-pred_log[:, :, 0].squeeze(),
+                dim=1) / torch.sum(attention_mask, dim=1)).mean()
+    else:
+        loss = -pred_log[:, :, 0].mean()
+
+    return loss
 
 
 # ################### WIP ######################

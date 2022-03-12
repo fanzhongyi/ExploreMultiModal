@@ -90,6 +90,7 @@ class BaseDataset(Dataset):
         image_bytes = self.table[image_key][index].as_py()
         image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
         if self.transform:
+            image_aug = self.transform(image)[0]
             image = self.transform(image)
 
         if isinstance(image, tuple):
@@ -99,6 +100,7 @@ class BaseDataset(Dataset):
 
         return {
             "image": image,
+            "image_aug": image_aug,
             "image4dalle": image4dalle,
             "img_index": self.index_mapper[index][0],
             "cap_index": self.index_mapper[index][1],

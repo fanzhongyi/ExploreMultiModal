@@ -123,7 +123,11 @@ class VlmoModule(nn.Module):
         if self.config.vlmo_ema:
             self.transformer_m = ModelEma(self.transformer,
                                           decay=self.config.vlmo_ema_decay)
+            self.itc_head_m = ModelEma(self.itc_head,
+                                       decay=self.config.vlmo_ema_decay)
             for p in self.transformer_m.parameters():
+                p.requires_grad = False
+            for p in self.itc_head_m.parameters():
                 p.requires_grad = False
 
         # ======================= Queue ====================== #

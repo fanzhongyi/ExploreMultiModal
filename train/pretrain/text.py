@@ -324,7 +324,8 @@ def train_one_epoch(model: torch.nn.Module,
                 create_graph=is_second_order,
                 update_grad=(step + 1) % grad_acc_steps == 0,
             )
-            optimizer.zero_grad()
+            if (step + 1) % grad_acc_steps == 0:
+                optimizer.zero_grad()
             loss_scale_value = loss_scaler.state_dict()["scale"]
 
         if lr_scheduler is not None:

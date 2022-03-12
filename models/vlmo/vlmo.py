@@ -233,6 +233,7 @@ class VLMO(nn.Module):
             patch_size=patch_size,
             in_chans=in_chans,
             embed_dim=embed_dim,
+            # norm_layer=norm_layer,
         )
         num_patches = self.patch_embed.num_patches
 
